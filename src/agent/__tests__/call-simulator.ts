@@ -1,138 +1,166 @@
-// Call simulator — run full conversation flows against the real agent
-// without needing Twilio. Used for prompt testing and regression checks.
+// Call simulator — runs full conversation flows against the real agent.
+// Requires ANTHROPIC_API_KEY and a running database.
 //
 // Usage:
-//   npx ts-node src/agent/__tests__/call-simulator.ts
-//   npx ts-node src/agent/__tests__/call-simulator.ts --scenario existing-booking
+//   npm run simulate                           — run all scenarios
+//   npm run simulate:scenario business-inquiry — run one scenario
 
 import dotenv from 'dotenv';
 dotenv.config();
 
 import { AgentOrchestrator } from '../orchestrator';
-
-interface ConversationStep {
-  userSays: string;
-  expectContains?: string[];
-  expectState?: string;
-}
+import { initializeSessionStore } from '../../utils/session-store';
+import { initializeDatabase } from '../../db/connection';
 
 interface Scenario {
   name: string;
   description: string;
-  steps: ConversationStep[];
+  steps: string[];
 }
 
 const SCENARIOS: Scenario[] = [
   {
-    name: 'happy-path',
-    description: 'Customer calls and successfully books a Cancun villa',
+    name: 'business-inquiry',
+    description: 'Vendor calling about cleaning services partnership',
     steps: [
-      { userSays: 'Hi, I want to book a vacation home in Cancun for Spring Break' },
-      { userSays: 'March 15th to the 22nd, 8 people' },
-      { userSays: 'Around $300 a night is fine' },
-      { userSays: 'Tell me more about the first option' },
-      { userSays: "Yes, that sounds perfect, let's book it" },
-      { userSays: 'John Smith' },
-      { userSays: 'john.smith@test.com' },
-      { userSays: '555-867-5309' },
-      { userSays: "Just a crib for our 1-year-old, no other requests" },
-      { userSays: 'Yes, everything looks correct. Go ahead and book it.' },
+      'Hi, I am calling about a potential cleaning services partnership',
+      'My name is Maria Santos, I run a cleaning company',
+      'My number is 305-555-0199 and email is maria@cleanpro.com',
+      'We specialize in vacation rental turnovers and would love to work with you',
     ],
   },
   {
-    name: 'no-results-recovery',
-    description: 'Agent recovers gracefully when no properties match',
+    name: 'general-info-english',
+    description: 'Potential guest asking about check-in and pets',
     steps: [
-      { userSays: 'I need something in Antarctica for 50 people next weekend' },
-      { userSays: 'OK fine, what about Miami for 4 people?' },
-      { userSays: 'Mid July, a week' },
-      { userSays: 'Budget is flexible' },
+      'Hi, I have a couple of general questions about your properties',
+      'What time is check-in?',
+      'Are pets allowed?',
+      'Thank you, that is all I needed',
     ],
   },
   {
-    name: 'escalation',
-    description: 'Customer asks to speak with a human',
+    name: 'general-info-spanish',
+    description: 'Spanish-speaking potential guest asking about policies',
     steps: [
-      { userSays: 'Hi I need to change my existing booking' },
-      { userSays: 'My email is sarah@test.com' },
-      { userSays: 'I want to add two more guests and change my check-in date' },
+      'Hola, tengo unas preguntas sobre sus propiedades',
+      '¿A qué hora es el check-in?',
+      '¿Está incluido el WiFi?',
+      'Gracias, eso es todo',
     ],
   },
   {
-    name: 'budget-constraint',
-    description: 'Agent adapts to tight budget and finds alternatives',
+    name: 'future-guest-reservation',
+    description: 'Potential guest interested in booking a Cancun property',
     steps: [
-      { userSays: 'Looking for something in Miami this weekend, 2 people' },
-      { userSays: 'Budget is $80 per night max' },
-      { userSays: "OK I can go up to $150" },
-      { userSays: 'Show me option 2' },
+      'Hi, I am interested in booking a vacation home in Cancun',
+      'I want to make a reservation',
+      'My name is David Chen',
+      'My number is 416-555-0177',
+      'We are looking at July 10 to July 17, 6 people, budget around $400 per night',
+      'No special requests, thank you',
+    ],
+  },
+  {
+    name: 'existing-guest-checkin',
+    description: 'Existing guest asking about check-in procedures',
+    steps: [
+      'Hi, I have a reservation and I have a question about check-in',
+      'My name is Sarah Johnson, email sarah@example.com',
+      'I want to know about the check-in process and if early check-in is possible',
+    ],
+  },
+  {
+    name: 'existing-guest-maintenance',
+    description: 'Existing guest reporting a maintenance issue',
+    steps: [
+      'Hello, I am currently staying at one of your properties and I have an issue',
+      'My name is Robert Kim, robert@example.com',
+      'I need to report a maintenance issue',
+      'The AC is not working and it is very hot',
+      'Yes it is urgent, the whole unit is off',
+    ],
+  },
+  {
+    name: 'existing-guest-service',
+    description: 'Existing guest requesting pool heater',
+    steps: [
+      'Hi, I am staying at your Cancun property right now',
+      'My name is Lisa Park, lisa@example.com',
+      'I would like to request the pool heater to be turned on',
+      'No specific time, whenever convenient today',
     ],
   },
 ];
 
 const runScenario = async (scenario: Scenario): Promise<void> => {
-  console.log(`\n${'═'.repeat(60)}`);
+  console.log(`\n${'═'.repeat(70)}`);
   console.log(`SCENARIO: ${scenario.name}`);
-  console.log(`DESC: ${scenario.description}`);
-  console.log('═'.repeat(60));
+  console.log(`DESC:     ${scenario.description}`);
+  console.log('═'.repeat(70));
 
   const callId = `sim-${scenario.name}-${Date.now()}`;
 
   try {
-    await AgentOrchestrator.startSession(callId, '+15550000000');
+    await AgentOrchestrator.startSession(callId, '+15550000001');
 
-    // Get opening greeting
     const greeting = await AgentOrchestrator.getGreeting(callId);
-    console.log(`\n[AGENT]: ${greeting.agentResponse}`);
+    console.log(`\n[AGENT]:  ${greeting}`);
 
-    for (const step of scenario.steps) {
-      console.log(`\n[USER]:  ${step.userSays}`);
+    for (const userMessage of scenario.steps) {
+      console.log(`\n[USER]:   ${userMessage}`);
 
-      const result = await AgentOrchestrator.handleMessage(callId, step.userSays);
+      const result = await AgentOrchestrator.handleMessage(callId, userMessage);
 
-      console.log(`[AGENT]: ${result.agentResponse}`);
+      console.log(`[AGENT]:  ${result.agentResponse}`);
 
-      if (result.bookingConfirmed) {
-        console.log(`\n✅ BOOKING CONFIRMED: ${result.confirmationCode}`);
-      }
-      if (result.escalated) {
-        console.log(`\n🔀 ESCALATED TO HUMAN`);
+      const ctx = result.context;
+      if (ctx.state === 'ESCALATED') {
+        console.log(`\n🔀  ESCALATED — reason: ${ctx.escalationReason ?? 'unspecified'}`);
         break;
       }
-      if (result.context.state === 'CLOSED') {
-        console.log(`\n✅ CALL COMPLETE`);
+      if (ctx.state === 'CLOSED') {
+        console.log('\n✅  CALL COMPLETE');
         break;
       }
     }
-
-    await AgentOrchestrator.endSession(callId);
-  } catch (error) {
-    console.error(`\n❌ SCENARIO FAILED:`, error);
-    await AgentOrchestrator.endSession(callId, String(error));
+  } catch (err) {
+    console.error(`\n❌  SCENARIO FAILED:`, err);
+  } finally {
+    await AgentOrchestrator.endSession(callId).catch(() => undefined);
   }
 };
 
 const main = async (): Promise<void> => {
-  const targetScenario = process.argv[2]?.replace('--scenario=', '').replace('--scenario', '').trim();
+  // Initialise dependencies
+  await initializeDatabase();
+  await initializeSessionStore();
 
-  const toRun = targetScenario
-    ? SCENARIOS.filter((s) => s.name === targetScenario)
+  const arg = process.argv.find((a) => a.startsWith('--scenario'));
+  const targetName = arg?.split('=')[1] ?? process.argv[3];
+
+  const toRun = targetName
+    ? SCENARIOS.filter((s) => s.name === targetName)
     : SCENARIOS;
 
   if (toRun.length === 0) {
-    console.error(`Scenario "${targetScenario}" not found.`);
+    console.error(`Scenario "${targetName}" not found.`);
     console.log('Available:', SCENARIOS.map((s) => s.name).join(', '));
     process.exit(1);
   }
 
   console.log('Nova Vacation Homes — Call Simulator');
-  console.log(`Running ${toRun.length} scenario(s)\n`);
+  console.log(`Running ${toRun.length} scenario(s)  (model: ${process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6'})\n`);
 
   for (const scenario of toRun) {
     await runScenario(scenario);
   }
 
   console.log('\n\nAll scenarios complete.');
+  process.exit(0);
 };
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error('Simulator error:', err);
+  process.exit(1);
+});

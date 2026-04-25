@@ -1,147 +1,111 @@
 -- Seed data for development and testing
 
--- Sample properties
-INSERT INTO properties (
-  name, region, address, city, state, country, postal_code,
-  bedrooms, bathrooms, max_guests, base_price_per_night, description,
-  house_rules, amenities, cancellation_policy, is_active
-) VALUES
-(
-  'Casa Azul - Cancun',
-  'Cancun',
-  'Paseo Kukulkan 45',
-  'Cancun',
-  'Quintana Roo',
-  'Mexico',
-  '77500',
-  3, 2, 8,
-  300.00,
-  'Beautiful beachfront villa with ocean views, pool, and hot tub',
-  '{"checkInTime": "3:00 PM", "checkOutTime": "11:00 AM", "smokingAllowed": false, "petsAllowed": false}',
-  '["pool", "ocean_view", "concierge", "wifi", "kitchen"]',
-  '{"type": "flexible", "description": "Free cancellation up to 7 days before arrival", "refundPercentage": 100}',
-  TRUE
-),
-(
-  'Villa Paraiso - Cancun',
-  'Cancun',
-  'Boulevard Barrera 123',
-  'Cancun',
-  'Quintana Roo',
-  'Mexico',
-  '77500',
-  4, 3, 10,
-  280.00,
-  'Luxury ocean view villa with 2 kitchens, perfect for large groups',
-  '{"checkInTime": "3:00 PM", "checkOutTime": "11:00 AM", "smokingAllowed": false, "petsAllowed": false}',
-  '["pool", "ocean_view", "2_kitchens", "beach_access", "concierge", "wifi"]',
-  '{"type": "moderate", "description": "Free cancellation up to 14 days before arrival", "refundPercentage": 100}',
-  TRUE
-),
-(
-  'Playa Blanca - Cancun',
-  'Cancun',
-  'Avenida Tulum 500',
-  'Cancun',
-  'Quintana Roo',
-  'Mexico',
-  '77500',
-  3, 2, 8,
-  320.00,
-  'Modern beachfront property with private beach access and hot tub',
-  '{"checkInTime": "3:00 PM", "checkOutTime": "11:00 AM", "smokingAllowed": false, "petsAllowed": false}',
-  '["private_beach", "hot_tub", "modern_decor", "ocean_view", "wifi"]',
-  '{"type": "strict", "description": "Free cancellation up to 3 days before arrival", "refundPercentage": 100}',
-  TRUE
-),
-(
-  'Beachside Studio - Miami',
-  'Miami',
-  'Ocean Drive 1500',
-  'Miami',
-  'Florida',
-  'USA',
-  '33139',
-  1, 1, 3,
-  95.00,
-  'Cozy beachfront studio perfect for couples or solo travelers',
-  '{"checkInTime": "4:00 PM", "checkOutTime": "10:00 AM", "smokingAllowed": false, "petsAllowed": false}',
-  '["beach_access", "ocean_view", "kitchenette", "wifi"]',
-  '{"type": "flexible", "description": "Free cancellation up to 10 days before arrival", "refundPercentage": 100}',
-  TRUE
-),
-(
-  'Sunset Villa - Miami',
-  'Miami',
-  'Collins Avenue 2000',
-  'Miami',
-  'Florida',
-  'USA',
-  '33139',
-  3, 2, 8,
-  150.00,
-  'Elegant villa with pool and garden overlooking the ocean',
-  '{"checkInTime": "3:00 PM", "checkOutTime": "11:00 AM", "smokingAllowed": false, "petsAllowed": true}',
-  '["pool", "garden", "ocean_view", "patio", "wifi", "kitchen"]',
-  '{"type": "flexible", "description": "Free cancellation up to 7 days before arrival", "refundPercentage": 100}',
-  TRUE
-),
-(
-  'Sunset Retreat - Key West',
-  'Key West',
-  'Duval Street 100',
-  'Key West',
-  'Florida',
-  'USA',
-  '33040',
-  2, 1, 4,
-  200.00,
-  'Charming beachfront property with direct ocean access',
-  '{"checkInTime": "3:00 PM", "checkOutTime": "11:00 AM", "smokingAllowed": false, "petsAllowed": false}',
-  '["beachfront", "ocean_view", "patio", "wifi", "kitchen"]',
-  '{"type": "flexible", "description": "Free cancellation up to 7 days before arrival", "refundPercentage": 100}',
-  TRUE
-);
+-- ── FAQ Knowledge Base ────────────────────────────────────────────────────────
 
--- Add availability for properties (next 30 days, all available)
-INSERT INTO property_availability (property_id, date, is_available, reason)
-SELECT
-  p.id,
-  CURRENT_DATE + (interval '1 day' * s.a),
-  true,
-  NULL
-FROM
-  properties p,
-  generate_series(0, 89) AS s(a);
+-- English FAQs
+INSERT INTO faqs (question, answer, category, language, keywords) VALUES
+('What time is check-in?',
+ 'Check-in time is 3:00 PM. Early check-in may be available upon request — please contact us the day before your arrival.',
+ 'check-in', 'en', ARRAY['check-in', 'checkin', 'arrive', 'arrival', 'time', '3pm']),
 
--- Sample customers (optional, for testing)
-INSERT INTO customers (email, first_name, last_name, phone, country, preferred_region)
+('What time is check-out?',
+ 'Check-out is at 11:00 AM. Late check-out may be available for a small fee — please ask when you call.',
+ 'check-out', 'en', ARRAY['check-out', 'checkout', 'leave', 'departure', 'time', '11am']),
+
+('Is there parking available?',
+ 'All of our properties include free parking. Details about the specific parking arrangement are included in your confirmation email and property guide.',
+ 'amenities', 'en', ARRAY['parking', 'park', 'car', 'vehicle', 'garage']),
+
+('Is WiFi included?',
+ 'Yes, all properties include complimentary high-speed WiFi. The network name and password are in your welcome guide, delivered at check-in.',
+ 'amenities', 'en', ARRAY['wifi', 'internet', 'wireless', 'network', 'password']),
+
+('What is the cancellation policy?',
+ 'Cancellations made 7 or more days before check-in receive a full refund. Cancellations within 7 days are non-refundable. Please call us to discuss your specific situation.',
+ 'policies', 'en', ARRAY['cancel', 'cancellation', 'refund', 'policy', 'money back']),
+
+('Are pets allowed?',
+ 'Pet policies vary by property. Some homes are pet-friendly with a small pet fee; others do not allow pets. Please let us know which property you are interested in and we can confirm.',
+ 'policies', 'en', ARRAY['pet', 'dog', 'cat', 'animal', 'bring', 'allowed']),
+
+('Is smoking allowed?',
+ 'All of our properties are non-smoking indoors. Smoking is permitted outside in designated areas. A cleaning fee will apply if this policy is violated.',
+ 'policies', 'en', ARRAY['smoke', 'smoking', 'cigarette', 'cigar', 'outdoor']),
+
+('How do I get the keys?',
+ 'We use keyless entry — your unique door code will be emailed 24 hours before your check-in date. No key pickup is required.',
+ 'check-in', 'en', ARRAY['key', 'keys', 'door', 'entry', 'access', 'lock', 'code']),
+
+('How many guests are allowed?',
+ 'Maximum occupancy varies per property and is strictly enforced. Please check the listing details or ask us when inquiring about a specific home.',
+ 'policies', 'en', ARRAY['guests', 'people', 'occupancy', 'maximum', 'limit', 'how many']),
+
+('Do you provide linens and towels?',
+ 'Yes, all properties are fully equipped with bed linens and bath towels. Beach towels may vary by property.',
+ 'amenities', 'en', ARRAY['linens', 'towels', 'sheets', 'bed', 'bathroom', 'included']),
+
+('Is there a minimum stay requirement?',
+ 'Minimum stay requirements vary by property and season. Most properties require a 2-night minimum, with some requiring 3-7 nights during peak periods.',
+ 'policies', 'en', ARRAY['minimum', 'nights', 'stay', 'how long', 'duration', 'shortest']),
+
+('What happens if something breaks during my stay?',
+ 'Please call us immediately and we will arrange a repair. For emergencies, we have a 24/7 maintenance line. Non-emergency issues are typically resolved within 24 hours.',
+ 'support', 'en', ARRAY['broken', 'broke', 'repair', 'fix', 'issue', 'problem', 'maintenance']);
+
+-- Spanish FAQs
+INSERT INTO faqs (question, answer, category, language, keywords) VALUES
+('¿A qué hora es el check-in?',
+ 'El check-in es a las 3:00 PM. El check-in anticipado puede estar disponible previa solicitud — por favor contáctenos el día antes de su llegada.',
+ 'check-in', 'es', ARRAY['check-in', 'llegada', 'hora', 'entrada', '3pm']),
+
+('¿A qué hora es el check-out?',
+ 'El check-out es a las 11:00 AM. El late check-out puede estar disponible por una tarifa adicional — por favor pregunte cuando llame.',
+ 'check-out', 'es', ARRAY['check-out', 'salida', 'hora', 'dejar', '11am']),
+
+('¿Hay estacionamiento disponible?',
+ 'Todas nuestras propiedades incluyen estacionamiento gratuito. Los detalles específicos están en su correo de confirmación.',
+ 'amenities', 'es', ARRAY['estacionamiento', 'parking', 'carro', 'auto', 'vehículo', 'garaje']),
+
+('¿Está incluido el WiFi?',
+ 'Sí, todas las propiedades incluyen WiFi de alta velocidad sin costo adicional. El nombre de la red y la contraseña están en su guía de bienvenida.',
+ 'amenities', 'es', ARRAY['wifi', 'internet', 'red', 'contraseña', 'incluido']),
+
+('¿Cuál es la política de cancelación?',
+ 'Las cancelaciones realizadas con 7 o más días de anticipación reciben reembolso completo. Las cancelaciones dentro de los 7 días no son reembolsables.',
+ 'policies', 'es', ARRAY['cancelar', 'cancelación', 'reembolso', 'política', 'dinero']),
+
+('¿Se permiten mascotas?',
+ 'La política de mascotas varía según la propiedad. Algunas casas son pet-friendly con una pequeña tarifa; otras no permiten mascotas. Por favor infórmenos qué propiedad le interesa.',
+ 'policies', 'es', ARRAY['mascota', 'perro', 'gato', 'animal', 'permitido']);
+
+-- Portuguese FAQs
+INSERT INTO faqs (question, answer, category, language, keywords) VALUES
+('Qual é o horário de check-in?',
+ 'O check-in é às 15:00. O check-in antecipado pode estar disponível mediante solicitação — entre em contato conosco no dia anterior à sua chegada.',
+ 'check-in', 'pt', ARRAY['check-in', 'chegada', 'hora', 'entrada', '15h', '3pm']),
+
+('Qual é o horário de check-out?',
+ 'O check-out é às 11:00. O check-out tardio pode estar disponível mediante uma pequena taxa — pergunte quando ligar.',
+ 'check-out', 'pt', ARRAY['check-out', 'saída', 'hora', 'sair', '11h']),
+
+('Há estacionamento disponível?',
+ 'Todas as nossas propriedades incluem estacionamento gratuito. Os detalhes específicos estão no e-mail de confirmação.',
+ 'amenities', 'pt', ARRAY['estacionamento', 'parking', 'carro', 'veículo', 'garagem']),
+
+('O WiFi está incluído?',
+ 'Sim, todas as propriedades incluem WiFi de alta velocidade gratuitamente. O nome da rede e a senha estão no guia de boas-vindas.',
+ 'amenities', 'pt', ARRAY['wifi', 'internet', 'rede', 'senha', 'incluído']),
+
+('Qual é a política de cancelamento?',
+ 'Cancelamentos feitos com 7 ou mais dias de antecedência recebem reembolso total. Cancelamentos dentro de 7 dias não são reembolsáveis.',
+ 'policies', 'pt', ARRAY['cancelar', 'cancelamento', 'reembolso', 'política', 'dinheiro']);
+
+-- ── Sample intake messages (for testing the staff follow-up workflow) ──────────
+
+INSERT INTO intake_messages (intake_type, caller_name, caller_phone, caller_email,
+  destination, check_in_date, check_out_date, guest_count, status)
 VALUES
-  ('john.smith@example.com', 'John', 'Smith', '555-0100', 'USA', 'Cancun'),
-  ('sarah.jones@example.com', 'Sarah', 'Jones', '555-0101', 'Canada', 'Miami'),
-  ('michael.brown@example.com', 'Michael', 'Brown', '555-0102', 'USA', 'Key West')
-ON CONFLICT (email) DO NOTHING;
-
--- Sample booking (optional, for testing)
-INSERT INTO bookings (
-  confirmation_code, property_id, customer_id, check_in_date, check_out_date,
-  guest_count, total_nights, price_per_night, subtotal, fees, total_price,
-  status, payment_status
-)
-SELECT
-  'NVH-2025-0001',
-  (SELECT id FROM properties WHERE name = 'Casa Azul - Cancun'),
-  (SELECT id FROM customers WHERE email = 'john.smith@example.com'),
-  CURRENT_DATE + interval '30 days',
-  CURRENT_DATE + interval '37 days',
-  4,
-  7,
-  300.00,
-  2100.00,
-  150.00,
-  2250.00,
-  'confirmed',
-  'completed'
-WHERE EXISTS (SELECT 1 FROM customers WHERE email = 'john.smith@example.com')
-AND EXISTS (SELECT 1 FROM properties WHERE name = 'Casa Azul - Cancun')
-ON CONFLICT DO NOTHING;
+  ('reservation_interest', 'Carlos Rivera', '+1-305-555-0101', 'carlos@example.com',
+   'Cancun', '2025-07-04', '2025-07-11', 6, 'pending'),
+  ('business_inquiry', 'Ana Lima', '+1-786-555-0202', 'ana@limpiezapro.com',
+   NULL, NULL, NULL, NULL, 'pending');

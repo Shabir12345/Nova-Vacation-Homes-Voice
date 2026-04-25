@@ -1,37 +1,62 @@
-import dotenv from 'dotenv';
+import { config } from './config'; // validates env vars first — fails fast
 import { logger } from './utils/logger';
-import { initializeDatabase } from './db/connection';
+import { initializeDatabase, closeDatabase } from './db/connection';
 import { initializeClientDb } from './services/client-db.service';
+import { initializeSessionStore, closeSessionStore } from './utils/session-store';
+import { AgentOrchestrator } from './agent';
 import { createServer } from './server';
-
-dotenv.config();
-
-const PORT = parseInt(process.env.PORT || '3000', 10);
-const NODE_ENV = process.env.NODE_ENV || 'development';
+import http from 'http';
 
 async function bootstrap(): Promise<void> {
-  try {
-    logger.info(`Starting Nova Vacation Homes Voice Agent (${NODE_ENV})`);
+  logger.info({ env: config.NODE_ENV, port: config.PORT }, 'Starting Nova Vacation Homes Voice Agent');
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY is required');
-    }
+  await initializeDatabase();
+  logger.info('Our database ready');
 
-    await initializeDatabase();
-    logger.info('Our database connected');
+  await initializeSessionStore();
+  logger.info('Session store ready');
 
-    initializeClientDb(); // Non-fatal if CLIENT_DATABASE_URL not set yet
-    logger.info('Client database adapter initialised');
+  initializeClientDb(); // non-fatal — degrades gracefully without CLIENT_DATABASE_URL
+  logger.info('Client DB adapter initialised');
 
-    const app = createServer();
-    app.listen(PORT, () => {
-      logger.info(`HTTP server listening on port ${PORT}`);
-      logger.info('Ready to accept Twilio webhook calls');
-    });
-  } catch (error) {
-    logger.error(error, 'Bootstrap failed');
-    process.exit(1);
-  }
+  const app = createServer();
+  const server = http.createServer(app);
+
+  await new Promise<void>((resolve) => {
+    server.listen(config.PORT, resolve);
+  });
+
+  logger.info(`HTTP server listening on :${config.PORT}`);
+  logger.info('Ready to accept calls');
+
+  // ── Graceful shutdown ─────────────────────────────────────────────────────
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info({ signal }, 'Shutdown signal received');
+
+    // Stop accepting new connections
+    server.close(() => logger.info('HTTP server closed'));
+
+    // Drain in-flight calls (up to 30s)
+    await AgentOrchestrator.drainActiveCalls(30_000);
+
+    // Close database connections
+    await closeDatabase();
+    await closeSessionStore();
+
+    logger.info('Shutdown complete');
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT',  () => void shutdown('SIGINT'));
+
+  // Log unhandled rejections instead of crashing silently
+  process.on('unhandledRejection', (reason) => {
+    logger.error({ reason }, 'Unhandled promise rejection');
+  });
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  logger.error(err, 'Bootstrap failed');
+  process.exit(1);
+});

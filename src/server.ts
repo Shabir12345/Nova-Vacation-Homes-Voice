@@ -1,30 +1,38 @@
-// Express server — handles Twilio voice webhooks and any REST routes
+// Express server — Twilio voice webhooks with auth, rate limiting, and analytics
 
 import express, { Request, Response, NextFunction } from 'express';
 import { AgentOrchestrator } from './agent';
+import { twilioWebhookAuth } from './middleware/twilio-auth';
+import { voiceCallRateLimiter } from './middleware/rate-limiter';
 import { Metrics } from './middleware/metrics';
 import { AnalyticsService } from './services/analytics.service';
+import { config } from './config';
 import { logger } from './utils/logger';
 
 export const createServer = (): express.Application => {
   const app = express();
 
-  // Parse URL-encoded bodies (Twilio sends form data)
+  // Parse URL-encoded bodies (Twilio sends application/x-www-form-urlencoded)
+  // Raw body must be preserved for signature validation
   app.use(express.urlencoded({ extended: false }));
   app.use(express.json());
 
-  // Request logging
+  // Structured request logging
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    logger.debug({ method: req.method, path: req.path }, 'Incoming request');
+    logger.debug({ method: req.method, path: req.path }, 'Request received');
     next();
   });
 
-  // ── Health check ──────────────────────────────────────────────────────────
+  // ── Health & observability ────────────────────────────────────────────────
   app.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', service: 'nova-voice-agent', ts: new Date().toISOString() });
+    res.json({
+      status: 'ok',
+      service: 'nova-voice-agent',
+      env: config.NODE_ENV,
+      ts: new Date().toISOString(),
+    });
   });
 
-  // ── Metrics & Analytics ───────────────────────────────────────────────────
   app.get('/metrics', (_req: Request, res: Response) => {
     res.json(Metrics.snapshot());
   });
@@ -37,66 +45,86 @@ export const createServer = (): express.Application => {
         AnalyticsService.getTopEscalationReasons(),
       ]);
       res.json({ summary, daily, escalations });
-    } catch (error) {
-      logger.error(error, 'Failed to fetch analytics');
+    } catch (err) {
+      logger.error(err, 'Analytics fetch failed');
       res.status(500).json({ error: 'Failed to fetch analytics' });
     }
   });
 
   // ── Twilio: Incoming call ─────────────────────────────────────────────────
-  // Twilio hits this URL when a call comes in. We respond with TwiML to
-  // stream audio to our agent via <Connect><Stream>.
-  app.post('/voice/incoming', async (req: Request, res: Response) => {
-    const callSid = req.body.CallSid as string;
-    const from = req.body.From as string;
+  // Rate limit → signature auth → handler
+  app.post(
+    '/voice/incoming',
+    voiceCallRateLimiter,
+    twilioWebhookAuth,
+    async (req: Request, res: Response) => {
+      const callSid = req.body.CallSid as string;
+      const from    = req.body.From    as string;
 
-    try {
-      await AgentOrchestrator.startSession(callSid, from);
-      logger.info({ callSid, from }, 'Incoming call received');
+      Metrics.callStarted();
 
-      // Return TwiML: connect audio stream to our WebSocket handler
-      const wsUrl = process.env.WEBSOCKET_URL || `wss://${req.hostname}/voice/stream`;
+      try {
+        await AgentOrchestrator.startSession(callSid, from);
+        logger.info({ callSid, from }, 'Incoming call accepted');
 
-      res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
+        // Get the opening greeting line to embed in TwiML
+        const greeting = await AgentOrchestrator.getGreeting(callSid);
+
+        // TwiML: speak the greeting, then open the bidirectional audio stream
+        const wsUrl = config.WEBSOCKET_URL ?? `wss://${req.hostname}/voice/stream`;
+
+        res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Say voice="Polly.Joanna" language="en-US">${escapeXml(greeting)}</Say>
   <Connect>
     <Stream url="${wsUrl}">
       <Parameter name="callSid" value="${callSid}" />
     </Stream>
   </Connect>
 </Response>`);
-    } catch (error) {
-      logger.error({ callSid, error }, 'Failed to handle incoming call');
-      res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
+      } catch (err) {
+        logger.error({ callSid, err }, 'Failed to handle incoming call');
+        res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say>We're sorry, we're experiencing technical difficulties. Please call back in a few minutes.</Say>
+  <Say>We're sorry, we're experiencing technical difficulties. Please try calling back in a few minutes.</Say>
   <Hangup/>
 </Response>`);
+      }
     }
-  });
+  );
 
   // ── Twilio: Call status callback ──────────────────────────────────────────
-  app.post('/voice/status', async (req: Request, res: Response) => {
-    const callSid = req.body.CallSid as string;
-    const callStatus = req.body.CallStatus as string;
+  app.post(
+    '/voice/status',
+    twilioWebhookAuth,
+    async (req: Request, res: Response) => {
+      const callSid    = req.body.CallSid    as string;
+      const callStatus = req.body.CallStatus as string;
 
-    logger.info({ callSid, callStatus }, 'Call status update');
+      logger.info({ callSid, callStatus }, 'Call status update');
 
-    if (callStatus === 'completed' || callStatus === 'failed' || callStatus === 'no-answer') {
-      await AgentOrchestrator.endSession(callSid).catch((err) =>
-        logger.warn(err, 'Error ending session on status callback')
-      );
+      if (['completed', 'failed', 'no-answer', 'busy'].includes(callStatus)) {
+        const session = await AgentOrchestrator.getSession(callSid);
+        if (session) {
+          Metrics.callEnded(session.state);
+          if (session.state === 'ESCALATED') {
+            Metrics.callEscalated(session.escalationReason ?? 'unknown');
+          }
+        }
+        AgentOrchestrator.endSession(callSid).catch((err) =>
+          logger.warn(err, 'Failed to end session on status callback')
+        );
+      }
+
+      res.sendStatus(204);
     }
+  );
 
-    res.sendStatus(204);
-  });
-
-  // ── Fallback for unknown routes ───────────────────────────────────────────
+  // ── 404 & global error handler ────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: 'Not found' });
   });
 
-  // ── Global error handler ──────────────────────────────────────────────────
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     logger.error(err, 'Unhandled server error');
     res.status(500).json({ error: 'Internal server error' });
@@ -104,3 +132,12 @@ export const createServer = (): express.Application => {
 
   return app;
 };
+
+// Escape characters that would break TwiML XML
+const escapeXml = (str: string): string =>
+  str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');

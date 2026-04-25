@@ -1,40 +1,44 @@
 {
   "name": "nova-vacation-homes-voice-agent",
-  "version": "0.1.0",
-  "description": "AI voice agent for Nova Vacation Homes vacation rental booking",
+  "version": "0.2.0",
+  "description": "AI voice agent — Nova Vacation Homes multi-language receptionist",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "ts-node src/index.ts",
+    "dev": "ts-node --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
-    "type-check": "tsc --noEmit",
-    "db:migrate": "node scripts/db-migrate.js",
-    "db:seed": "node scripts/db-seed.js",
-    "db:reset": "node scripts/db-reset.js",
-    "simulate": "ts-node src/agent/__tests__/call-simulator.ts",
-    "simulate:scenario": "ts-node src/agent/__tests__/call-simulator.ts --scenario"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "simulate": "ts-node --transpile-only src/agent/__tests__/call-simulator.ts",
+    "simulate:scenario": "ts-node --transpile-only src/agent/__tests__/call-simulator.ts",
+    "db:migrate": "ts-node --transpile-only scripts/db-migrate.ts",
+    "db:seed": "ts-node --transpile-only scripts/db-seed.ts",
+    "docker:up": "docker-compose up --build",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f agent"
   },
   "dependencies": {
-    "anthropic": "^0.26.0",
+    "@anthropic-ai/sdk": "^0.30.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "pg": "^8.11.3",
     "pino": "^8.17.2",
     "pino-pretty": "^10.3.1",
     "redis": "^4.6.12",
-    "bull": "^4.11.5",
     "twilio": "^4.8.1",
+    "ws": "^8.18.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.6",
+    "@types/pg": "^8.11.0",
+    "@types/ws": "^8.5.10",
     "@types/jest": "^29.5.11",
     "@typescript-eslint/eslint-plugin": "^6.17.0",
     "@typescript-eslint/parser": "^6.17.0",
@@ -46,6 +50,6 @@
     "typescript": "^5.3.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

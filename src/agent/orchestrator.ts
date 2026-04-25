@@ -1,89 +1,99 @@
-// Agent orchestrator — manages the full lifecycle of a voice call
-// Creates the session, processes each turn, and closes the call
+// Agent orchestrator — manages the full lifecycle of a voice call.
+// Sessions are stored in Redis so state survives restarts and scales horizontally.
 
 import { ConversationContext, StateMachine } from './state-machine';
 import { processTurn, TurnResult } from './decision-engine';
+import { SessionStore } from '../utils/session-store';
 import { CallLogService } from '../services/calllog.service';
+import { getGreeting } from './prompts';
 import { logger } from '../utils/logger';
 
-export interface AgentSession {
-  callId: string;
-  context: ConversationContext;
-  startedAt: Date;
-}
-
-// Active sessions keyed by callId — in production use Redis
-const activeSessions = new Map<string, ConversationContext>();
+// Track calls currently being processed (for graceful shutdown drain)
+const inFlightCalls = new Set<string>();
 
 export const AgentOrchestrator = {
-  // Start a new call session
-  startSession: async (callId: string, phoneNumber?: string): Promise<AgentSession> => {
-    const context = StateMachine.initialize(callId);
-    activeSessions.set(callId, context);
+  startSession: async (callId: string, phoneNumber?: string): Promise<ConversationContext> => {
+    const ctx = StateMachine.initialize(callId);
 
-    await CallLogService.createCallLog({ callId, phoneNumber }).catch((err) =>
-      logger.warn(err, 'Failed to create call log')
-    );
+    await SessionStore.set(callId, ctx);
 
-    logger.info({ callId, phoneNumber }, 'Agent session started');
-    return { callId, context, startedAt: context.startedAt };
+    CallLogService.createCallLog({ callId, phoneNumber })
+      .catch((err) => logger.warn(err, 'Failed to create call log'));
+
+    logger.info({ callId, phoneNumber }, 'Session started');
+    return ctx;
+  },
+
+  // Returns the agent's opening line — called once at the start of the call
+  getGreeting: async (callId: string): Promise<string> => {
+    const ctx = await SessionStore.get(callId);
+    const language = ctx?.language ?? 'en';
+    return getGreeting(language);
   },
 
   // Process one message from the caller and return the agent's response
   handleMessage: async (callId: string, userMessage: string): Promise<TurnResult> => {
-    const context = activeSessions.get(callId);
-    if (!context) {
-      throw new Error(`No active session for call ${callId}`);
+    const ctx = await SessionStore.get(callId);
+    if (!ctx) {
+      throw new Error(`No session found for call ${callId}. Was startSession called?`);
     }
 
-    if (context.state === 'CLOSED' || context.state === 'ESCALATED') {
-      return {
-        context,
-        agentResponse: '',
-        escalated: context.state === 'ESCALATED',
-        bookingConfirmed: !!context.confirmedBookingCode,
-        confirmationCode: context.confirmedBookingCode ?? undefined,
-      };
+    if (ctx.state === 'CLOSED' || ctx.state === 'ESCALATED') {
+      return { context: ctx, agentResponse: '', escalated: ctx.state === 'ESCALATED' };
     }
 
-    const result = await processTurn(context, userMessage);
-    activeSessions.set(callId, result.context);
-    return result;
+    inFlightCalls.add(callId);
+    try {
+      const result = await processTurn(ctx, userMessage);
+      await SessionStore.set(callId, result.context);
+      return result;
+    } finally {
+      inFlightCalls.delete(callId);
+    }
   },
 
-  // Get initial greeting — called at the very start of the call
-  getGreeting: async (callId: string): Promise<TurnResult> => {
-    return AgentOrchestrator.handleMessage(
-      callId,
-      '[CALL_START] Customer has just connected.'
-    );
-  },
+  // Finalise the call — flush logs and clean up session
+  endSession: async (callId: string, errorMessage?: string): Promise<void> => {
+    const ctx = await SessionStore.get(callId);
+    if (!ctx) return;
 
-  // End a call — finalize logs and clean up session
-  endSession: async (
-    callId: string,
-    errorMessage?: string
-  ): Promise<void> => {
-    const context = activeSessions.get(callId);
-    if (!context) return;
-
-    const duration = StateMachine.callDurationSeconds(context);
+    const duration = StateMachine.callDurationSeconds(ctx);
+    const transcript = ctx.messages
+      .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+      .join('\n\n');
 
     await CallLogService.endCall(
       callId,
       duration,
-      context.state === 'ESCALATED',
-      context.escalationReason ?? undefined,
-      context.propertiesShown,
-      context.messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n'),
+      ctx.state === 'ESCALATED',
+      ctx.escalationReason ?? undefined,
+      [], // propertiesShown — not applicable in this architecture
+      transcript,
       errorMessage
-    ).catch((err) => logger.warn(err, 'Failed to finalize call log'));
+    ).catch((err) => logger.warn(err, 'Failed to finalise call log'));
 
-    activeSessions.delete(callId);
-    logger.info({ callId, duration, state: context.state }, 'Agent session ended');
+    await SessionStore.delete(callId);
+    logger.info({ callId, duration, finalState: ctx.state }, 'Session ended');
   },
 
-  getSession: (callId: string): ConversationContext | undefined => {
-    return activeSessions.get(callId);
+  getSession: async (callId: string): Promise<ConversationContext | null> =>
+    SessionStore.get(callId),
+
+  // Used by graceful shutdown — resolves when all in-flight calls finish
+  drainActiveCalls: async (timeoutMs = 30_000): Promise<void> => {
+    if (inFlightCalls.size === 0) return;
+
+    logger.info({ activeCalls: inFlightCalls.size }, 'Draining in-flight calls before shutdown');
+
+    const deadline = Date.now() + timeoutMs;
+    while (inFlightCalls.size > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+
+    if (inFlightCalls.size > 0) {
+      logger.warn({ remaining: inFlightCalls.size }, 'Shutdown timeout reached — abandoning remaining calls');
+    } else {
+      logger.info('All calls drained — clean shutdown');
+    }
   },
 };
