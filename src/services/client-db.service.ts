@@ -1,213 +1,414 @@
-// ClientDbService — read-only adapter to the client's existing PostgreSQL database
-// Table names and column names will be filled in once the client shares their schema.
-// All methods return normalised shapes that the agent tools can consume.
+// ClientDbService — connects to the client's PostgreSQL database (schema: pms)
+// Tables are PostgreSQL Foreign Data Wrappers proxying their Guesty PMS data.
+//
+// Read access:  pms.guest, pms.reservation, pms.listing,
+//               pms.listing_marketing_info, pms.guestguide
+// Write access: pms.call_log
 
 import { Pool } from 'pg';
+import { config } from '../config';
 import { logger } from '../utils/logger';
 
-// Separate pool pointing at the CLIENT's database (read-only credentials)
 let clientPool: Pool;
 
 export const initializeClientDb = (): void => {
-  const url = process.env.CLIENT_DATABASE_URL;
-  if (!url) {
-    logger.warn('CLIENT_DATABASE_URL not set — client DB features will return mock data');
+  if (!config.CLIENT_DATABASE_URL) {
+    logger.warn('CLIENT_DATABASE_URL not set — client DB features unavailable');
     return;
   }
-  clientPool = new Pool({ connectionString: url, max: 5 });
-  logger.info('Client database pool initialised');
+
+  clientPool = new Pool({
+    connectionString: config.CLIENT_DATABASE_URL,
+    max: 10,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 5_000,
+    // All tables live in the pms schema
+    options: '-c search_path=pms,public',
+  });
+
+  clientPool.on('error', (err) => logger.error(err, 'Client DB pool error'));
+  logger.info('Client database pool initialised (schema: pms)');
 };
 
-const getClientPool = (): Pool => {
-  if (!clientPool) {
-    throw new Error('Client database not initialised. Set CLIENT_DATABASE_URL.');
-  }
+const pool = (): Pool => {
+  if (!clientPool) throw new Error('Client DB not initialised');
   return clientPool;
 };
 
-// ─── Normalised types the agent consumes ─────────────────────────────────────
+// ─── Normalised return types ──────────────────────────────────────────────────
 
 export interface ReservationRecord {
   id: string;
   guestName: string;
-  propertyName: string;
+  propertyTitle: string;
   propertyAddress: string;
-  checkInDate: string;
-  checkOutDate: string;
-  checkInTime: string;
-  checkOutTime: string;
-  guestCount: number;
-  specialNotes: string | null;
+  checkIn: Date;
+  checkOut: Date;
+  checkInTime: string;   // from listing.default_check_in_time
+  checkOutTime: string;  // from listing.default_check_out_time
+  nightsCount: number;
+  guestsCount: number;
+  keyCode: string | null;
+  wifiName: string | null;
+  wifiPassword: string | null;
+  otaConfirmationCode: string | null;
+  status: string;
 }
 
-export interface PropertySearchResult {
-  name: string;
-  region: string;
-  description: string;
-  bedrooms: number;
-  maxGuests: number;
-  priceRange: string;
+export interface ListingSearchResult {
+  id: string;
+  title: string;
+  nickname: string | null;
+  city: string | null;
+  state: string | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  accommodates: number | null;
   amenities: string[];
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  summary: string | null;
 }
 
-// ─── Methods ──────────────────────────────────────────────────────────────────
+// ─── Reservation lookup — first step for every existing-guest call ────────────
 
 export const ClientDbService = {
-  // Verify an existing guest reservation — called first for every existing-guest call
   findReservation: async (params: {
     guestName: string;
     email?: string;
-    confirmationCode?: string;
+    confirmationCode?: string;  // OTA confirmation code e.g. "HMZKYB34CX"
   }): Promise<ReservationRecord | null> => {
     try {
-      const pool = getClientPool();
+      // Match by OTA confirmation code first (most precise), then name/email
+      const whereClauses: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
 
-      // TODO: Replace with actual client table/column names once schema is shared
-      // Example query — update table name and columns to match client's schema:
-      const query = `
+      if (params.confirmationCode) {
+        whereClauses.push(`r.ota_confirmation_code = $${idx++}`);
+        values.push(params.confirmationCode.trim().toUpperCase());
+      }
+
+      if (params.email) {
+        whereClauses.push(`LOWER(g.email) = LOWER($${idx++})`);
+        values.push(params.email.trim());
+      }
+
+      // Always include name match as fallback
+      whereClauses.push(`LOWER(r.guest_full_name) LIKE LOWER($${idx++})`);
+      values.push(`%${params.guestName.trim()}%`);
+
+      const sql = `
         SELECT
           r.id,
-          g.first_name || ' ' || g.last_name  AS guest_name,
-          p.name                               AS property_name,
-          p.address                            AS property_address,
-          r.check_in_date,
-          r.check_out_date,
-          COALESCE(p.check_in_time, '3:00 PM') AS check_in_time,
-          COALESCE(p.check_out_time, '11:00 AM') AS check_out_time,
-          r.guest_count,
-          r.special_notes
-        FROM reservations r
-        JOIN guests g ON r.guest_id = g.id
-        JOIN properties p ON r.property_id = p.id
-        WHERE (
-          LOWER(g.first_name || ' ' || g.last_name) LIKE LOWER($1)
-          ${params.email ? 'OR LOWER(g.email) = LOWER($2)' : ''}
-          ${params.confirmationCode ? `OR r.confirmation_code = $${params.email ? 3 : 2}` : ''}
-        )
-        AND r.status NOT IN ('cancelled')
-        ORDER BY r.check_in_date DESC
+          r.guest_full_name,
+          r.ota_confirmation_code,
+          r.reservation_status_code,
+          r.check_in,
+          r.check_out,
+          r.nights_count,
+          r.guestscount,
+          r.keycode,
+          l.title                    AS property_title,
+          l.full_address             AS property_address,
+          l.default_check_in_time    AS check_in_time,
+          l.default_check_out_time   AS check_out_time,
+          l.wifi_name,
+          l.wifi_password
+        FROM pms.reservation r
+        LEFT JOIN pms.listing l ON l.id = r.listing_id
+        LEFT JOIN pms.guest   g ON g.id = r.guest_id
+        WHERE r.reservation_status_code NOT IN ('cancelled', 'declined')
+          AND (${whereClauses.join(' OR ')})
+        ORDER BY r.check_in DESC
         LIMIT 1
       `;
 
-      const queryParams: unknown[] = [`%${params.guestName}%`];
-      if (params.email) queryParams.push(params.email);
-      if (params.confirmationCode) queryParams.push(params.confirmationCode);
-
-      const result = await pool.query(query, queryParams);
-
+      const result = await pool().query(sql, values);
       if (result.rows.length === 0) return null;
 
       const row = result.rows[0];
       return {
-        id: row.id,
-        guestName: row.guest_name,
-        propertyName: row.property_name,
-        propertyAddress: row.property_address,
-        checkInDate: row.check_in_date,
-        checkOutDate: row.check_out_date,
-        checkInTime: row.check_in_time,
-        checkOutTime: row.check_out_time,
-        guestCount: row.guest_count,
-        specialNotes: row.special_notes,
+        id: String(row.id),
+        guestName: row.guest_full_name,
+        propertyTitle: row.property_title ?? 'Your property',
+        propertyAddress: row.property_address ?? '',
+        checkIn: new Date(row.check_in),
+        checkOut: new Date(row.check_out),
+        checkInTime: row.check_in_time
+          ? formatTime(row.check_in_time)
+          : '4:00 PM',
+        checkOutTime: row.check_out_time
+          ? formatTime(row.check_out_time)
+          : '10:00 AM',
+        nightsCount: row.nights_count,
+        guestsCount: row.guestscount,
+        keyCode: row.keycode ?? null,
+        wifiName: row.wifi_name ?? null,
+        wifiPassword: row.wifi_password ?? null,
+        otaConfirmationCode: row.ota_confirmation_code ?? null,
+        status: row.reservation_status_code,
       };
-    } catch (error) {
-      logger.error(error, 'Failed to find reservation in client DB');
-      throw error;
+    } catch (err) {
+      logger.error(err, 'findReservation failed');
+      throw err;
     }
   },
 
-  // General info about the reservation (dates, status, notes, etc.)
-  getReservationInfo: async (reservationId: string, _question: string): Promise<Record<string, unknown>> => {
+  // Full reservation + listing details for Reservation Agent questions
+  getReservationDetails: async (reservationId: string): Promise<Record<string, unknown> | null> => {
     try {
-      const pool = getClientPool();
-      // TODO: Replace with actual client table/column names
-      const result = await pool.query(
-        `SELECT r.*, p.name AS property_name, p.address, g.email, g.phone
-         FROM reservations r
-         JOIN properties p ON r.property_id = p.id
-         JOIN guests g ON r.guest_id = g.id
-         WHERE r.id = $1`,
-        [reservationId]
-      );
+      const result = await pool().query(`
+        SELECT
+          r.*,
+          l.title, l.full_address, l.city, l.state,
+          l.bedrooms, l.bathrooms, l.accommodates,
+          l.amenities, l.wifi_name, l.wifi_password,
+          l.default_check_in_time, l.default_check_out_time,
+          lm.access         AS access_instructions,
+          lm.house_rules,
+          lm.notes          AS property_notes,
+          lm.summary        AS property_summary,
+          lm.neighborhood
+        FROM pms.reservation r
+        LEFT JOIN pms.listing l              ON l.id = r.listing_id
+        LEFT JOIN pms.listing_marketing_info lm ON lm.listing_id = l.id AND lm.language_code = 'en'
+        WHERE r.id = $1
+        LIMIT 1
+      `, [reservationId]);
+
+      return result.rows[0] ?? null;
+    } catch (err) {
+      logger.error(err, 'getReservationDetails failed');
+      throw err;
+    }
+  },
+
+  // Check-in / check-out information — most common existing-guest question
+  getCheckinInfo: async (reservationId: string): Promise<Record<string, unknown>> => {
+    try {
+      const result = await pool().query(`
+        SELECT
+          r.check_in,
+          r.check_out,
+          r.nights_count,
+          r.keycode,
+          r.ota_confirmation_code,
+          l.default_check_in_time,
+          l.default_check_out_time,
+          l.title           AS property_title,
+          l.full_address    AS property_address,
+          l.wifi_name,
+          l.wifi_password,
+          lm.access         AS access_instructions
+        FROM pms.reservation r
+        LEFT JOIN pms.listing l              ON l.id = r.listing_id
+        LEFT JOIN pms.listing_marketing_info lm ON lm.listing_id = l.id AND lm.language_code = 'en'
+        WHERE r.id = $1
+      `, [reservationId]);
+
+      if (result.rows.length === 0) return {};
+      const row = result.rows[0];
+
+      return {
+        checkInDate: formatDate(row.check_in),
+        checkOutDate: formatDate(row.check_out),
+        checkInTime: row.default_check_in_time ? formatTime(row.default_check_in_time) : '4:00 PM',
+        checkOutTime: row.default_check_out_time ? formatTime(row.default_check_out_time) : '10:00 AM',
+        propertyTitle: row.property_title,
+        propertyAddress: row.property_address,
+        keyCode: row.keycode,
+        accessInstructions: row.access_instructions,
+        wifiName: row.wifi_name,
+        wifiPassword: row.wifi_password,
+        otaConfirmationCode: row.ota_confirmation_code,
+      };
+    } catch (err) {
+      logger.error(err, 'getCheckinInfo failed');
+      throw err;
+    }
+  },
+
+  // Listing details — amenities, description, house rules, etc.
+  getListingInfo: async (reservationId: string): Promise<Record<string, unknown>> => {
+    try {
+      const result = await pool().query(`
+        SELECT
+          l.title, l.nickname, l.full_address, l.city, l.state,
+          l.bedrooms, l.bathrooms, l.accommodates,
+          l.amenities,
+          l.listing_rooms,
+          l.area_square_feet,
+          l.minimum_age,
+          lm.summary, lm.space, lm.neighborhood, lm.house_rules, lm.notes
+        FROM pms.reservation r
+        JOIN pms.listing l ON l.id = r.listing_id
+        LEFT JOIN pms.listing_marketing_info lm ON lm.listing_id = l.id AND lm.language_code = 'en'
+        WHERE r.id = $1
+      `, [reservationId]);
+
       return result.rows[0] ?? {};
-    } catch (error) {
-      logger.error(error, 'Failed to get reservation info');
-      throw error;
+    } catch (err) {
+      logger.error(err, 'getListingInfo failed');
+      throw err;
     }
   },
 
-  // Property/listing details for the reserved property
-  getListingInfo: async (reservationId: string, _question: string): Promise<Record<string, unknown>> => {
+  // Guest guide entries for a reservation's listing — house manual, add-ons, etc.
+  getGuestGuide: async (reservationId: string, language = 'en'): Promise<Record<string, unknown>[]> => {
     try {
-      const pool = getClientPool();
-      // TODO: Replace with actual client table/column names
-      const result = await pool.query(
-        `SELECT p.*
-         FROM reservations r
-         JOIN properties p ON r.property_id = p.id
-         WHERE r.id = $1`,
-        [reservationId]
-      );
-      return result.rows[0] ?? {};
-    } catch (error) {
-      logger.error(error, 'Failed to get listing info');
-      throw error;
+      const result = await pool().query(`
+        SELECT
+          gg.title_i18n ->> $2            AS title,
+          gg.short_description_i18n ->> $2 AS short_description,
+          gg.content_i18n ->> $2           AS content,
+          gg.category,
+          gg.ui_tab_code,
+          gg.ui_section_name,
+          gg.is_purchasable,
+          gg.unit_price,
+          gg.unit_type
+        FROM pms.reservation r
+        JOIN pms.listing l    ON l.id = r.listing_id
+        JOIN pms.guestguide gg ON (
+          gg.filter_conditions IS NULL
+          OR gg.filter_conditions -> 'listing_filter' -> 'id' -> 'value' ? CAST(l.id AS text)
+        )
+        WHERE r.id = $1
+          AND gg.status = 'published'
+        ORDER BY gg.ui_sequence_number NULLS LAST, gg.title
+      `, [reservationId, language]);
+
+      return result.rows;
+    } catch (err) {
+      logger.error(err, 'getGuestGuide failed');
+      return [];
     }
   },
 
-  // Check-in/check-out times and instructions
-  getCheckinCheckoutInfo: async (reservationId: string): Promise<Record<string, unknown>> => {
+  // Property search for future guests / general info callers
+  searchListings: async (params: {
+    query?: string;
+    city?: string;
+    state?: string;
+    minBedrooms?: number;
+    maxGuests?: number;
+  }): Promise<ListingSearchResult[]> => {
     try {
-      const pool = getClientPool();
-      // TODO: Replace with actual client table/column names
-      const result = await pool.query(
-        `SELECT
-          r.check_in_date, r.check_out_date,
-          COALESCE(p.check_in_time, '3:00 PM') AS check_in_time,
-          COALESCE(p.check_out_time, '11:00 AM') AS check_out_time,
-          p.access_instructions,
-          p.parking_instructions,
-          p.wifi_password
-         FROM reservations r
-         JOIN properties p ON r.property_id = p.id
-         WHERE r.id = $1`,
-        [reservationId]
-      );
-      return result.rows[0] ?? {};
-    } catch (error) {
-      logger.error(error, 'Failed to get check-in/out info');
-      throw error;
-    }
-  },
+      const conditions: string[] = ['l.is_active = true', 'l.is_listed = true'];
+      const values: unknown[] = [];
+      let idx = 1;
 
-  // General property search for potential guests
-  searchProperties: async (query: string, region?: string): Promise<PropertySearchResult[]> => {
-    try {
-      const pool = getClientPool();
-      // TODO: Replace with actual client table/column names
-      const result = await pool.query(
-        `SELECT name, region, description, bedrooms, max_guests, base_price, amenities
-         FROM properties
-         WHERE is_active = true
-           ${region ? "AND LOWER(region) LIKE LOWER($2)" : ''}
-           AND (LOWER(name) LIKE LOWER($1) OR LOWER(description) LIKE LOWER($1) OR LOWER(region) LIKE LOWER($1))
-         ORDER BY rating DESC
-         LIMIT 5`,
-        region ? [`%${query}%`, `%${region}%`] : [`%${query}%`]
-      );
+      if (params.city) {
+        conditions.push(`LOWER(l.city) LIKE LOWER($${idx++})`);
+        values.push(`%${params.city}%`);
+      }
+      if (params.state) {
+        conditions.push(`(LOWER(l.state) LIKE LOWER($${idx++}) OR LOWER(l.state) = LOWER($${idx++}))`);
+        values.push(`%${params.state}%`, params.state);
+        idx--; // correct for the double push
+      }
+      if (params.minBedrooms) {
+        conditions.push(`l.bedrooms >= $${idx++}`);
+        values.push(params.minBedrooms);
+      }
+      if (params.maxGuests) {
+        conditions.push(`l.accommodates >= $${idx++}`);
+        values.push(params.maxGuests);
+      }
+      if (params.query) {
+        conditions.push(`(LOWER(l.title) LIKE LOWER($${idx++}) OR LOWER(l.full_address) LIKE LOWER($${idx++}))`);
+        values.push(`%${params.query}%`, `%${params.query}%`);
+        idx--;
+      }
+
+      const result = await pool().query(`
+        SELECT
+          l.id, l.title, l.nickname, l.city, l.state,
+          l.bedrooms, l.bathrooms, l.accommodates, l.amenities,
+          l.default_check_in_time, l.default_check_out_time,
+          lm.summary
+        FROM pms.listing l
+        LEFT JOIN pms.listing_marketing_info lm ON lm.listing_id = l.id AND lm.language_code = 'en'
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY l.title
+        LIMIT 10
+      `, values);
 
       return result.rows.map((r) => ({
-        name: r.name,
-        region: r.region,
-        description: r.description,
+        id: String(r.id),
+        title: r.title,
+        nickname: r.nickname,
+        city: r.city,
+        state: r.state,
         bedrooms: r.bedrooms,
-        maxGuests: r.max_guests,
-        priceRange: `From $${r.base_price}/night`,
+        bathrooms: r.bathrooms,
+        accommodates: r.accommodates,
         amenities: r.amenities ?? [],
+        checkInTime: r.default_check_in_time ? formatTime(r.default_check_in_time) : null,
+        checkOutTime: r.default_check_out_time ? formatTime(r.default_check_out_time) : null,
+        summary: r.summary,
       }));
-    } catch (error) {
-      logger.error(error, 'Failed to search properties in client DB');
-      throw error;
+    } catch (err) {
+      logger.error(err, 'searchListings failed');
+      throw err;
+    }
+  },
+
+  // Write a call log entry to the client's pms.call_log table
+  writeCallLog: async (params: {
+    reservationId: string;
+    guestName: string;
+    phone: string | null;
+    callSummary: string;
+    transcript: string;
+    callCategory: string;
+    checkIn?: Date;
+    checkOut?: Date;
+  }): Promise<void> => {
+    try {
+      await pool().query(`
+        INSERT INTO pms.call_log
+          (id, reservation_id, guest_name, phone, call_summary, transcript,
+           call_catergory, check_in, check_out, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      `, [generateId(),
+        params.reservationId,
+        params.guestName,
+        params.phone,
+        params.callSummary,
+        params.transcript,
+        params.callCategory,
+        params.checkIn ?? null,
+        params.checkOut ?? null,
+      ]);
+    } catch (err) {
+      logger.error(err, 'writeCallLog failed');
+      // Non-fatal — don't crash the call
     }
   },
 };
+
+// ─── ID generation ───────────────────────────────────────────────────────────
+// pms.call_log.id has no sequence — generate a Snowflake-style bigint
+// matching the format of existing IDs (timestamp-based, 19 digits)
+// Max PostgreSQL bigint = 9,223,372,036,854,775,807 (~9.2e18)
+// Date.now() * 1_000_000 ≈ 1.74e18 — safely within range
+const generateId = (): bigint =>
+  BigInt(Date.now()) * 1_000_000n + BigInt(Math.floor(Math.random() * 1_000_000));
+
+// ─── Formatting helpers ───────────────────────────────────────────────────────
+
+// "16:00:00" → "4:00 PM"
+const formatTime = (pgTime: string): string => {
+  const [h, m] = pgTime.split(':').map(Number);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${hour}:${String(m).padStart(2, '0')} ${suffix}`;
+};
+
+// Date → "Monday, July 24, 2025"
+const formatDate = (d: Date | string): string =>
+  new Date(d).toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });

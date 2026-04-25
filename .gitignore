@@ -41,5 +41,9 @@ tmp/
 temp/
 .cache/
 
+# Exploration / one-off scripts with credentials
+scripts/explore-client-db.js
+scripts/test-client-queries.js
+
 # OS
 Thumbs.db
