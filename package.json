@@ -16,7 +16,9 @@
     "type-check": "tsc --noEmit",
     "db:migrate": "node scripts/db-migrate.js",
     "db:seed": "node scripts/db-seed.js",
-    "db:reset": "node scripts/db-reset.js"
+    "db:reset": "node scripts/db-reset.js",
+    "simulate": "ts-node src/agent/__tests__/call-simulator.ts",
+    "simulate:scenario": "ts-node src/agent/__tests__/call-simulator.ts --scenario"
   },
   "dependencies": {
     "anthropic": "^0.26.0",
