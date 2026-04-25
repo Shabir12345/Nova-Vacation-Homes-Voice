@@ -1,230 +1,305 @@
-// Conversation state machine — tracks exactly where we are in the call flow
-// and what information has been collected so far
+// Conversation state machine — tracks call flow across all 4 branches
+// Matches the flowchart: Business Inquiry, General Info, Future Guest, Reservation (existing)
 
 export type CallState =
+  // Universal
   | 'GREETING'
   | 'INTENT_CLASSIFICATION'
-  | 'GATHERING_INFO'
-  | 'SEARCHING'
-  | 'PRESENTING'
-  | 'COLLECTING_DETAILS'
-  | 'CONFIRMING'
-  | 'BOOKING'
+  // Branch 1: Business Inquiry
+  | 'BUSINESS_INQUIRY_COLLECTING'
+  | 'BUSINESS_INQUIRY_LOGGED'
+  // Branch 2: General Information (FAQ)
+  | 'GENERAL_INFO_ANSWERING'
+  // Branch 3: Future Guest
+  | 'FUTURE_GUEST_ROUTING'          // decide: make reservation OR general info
+  | 'FUTURE_GUEST_RESERVATION'      // collecting details for staff callback
+  | 'FUTURE_GUEST_INFO'             // answering via DB, collecting basic details
+  // Branch 4: Existing Guest (Reservation)
+  | 'VERIFYING_RESERVATION'         // confirm booking via DB
+  | 'EXISTING_GUEST_ROUTING'        // decide: reservation agent OR service agent
+  // Reservation sub-agent
+  | 'RESERVATION_AGENT'
+  // Service sub-agent
+  | 'SERVICE_AGENT'
+  // Terminal states
   | 'CLOSED'
   | 'ESCALATED';
 
 export type CallIntent =
-  | 'new_booking'
-  | 'existing_booking'
-  | 'support'
+  | 'business_inquiry'
+  | 'general_information'
+  | 'future_guest'
+  | 'existing_guest'
   | 'unknown';
 
-export interface BookingSummary {
-  propertyId: number;
-  propertyName: string;
-  checkInDate: string;
-  checkOutDate: string;
-  nights: number;
-  guestCount: number;
-  pricePerNight: number;
-  totalPrice: number;
-  cancellationPolicy?: string;
-  specialRequests?: string;
+export type ExistingGuestIntent =
+  | 'general_information'
+  | 'listing_information'
+  | 'check_in_check_out'
+  | 'extend_reservation'
+  | 'cleaning'
+  | 'maintenance'
+  | 'services'
+  | 'unknown';
+
+export type FutureGuestIntent =
+  | 'make_reservation'
+  | 'general_information'
+  | 'unknown';
+
+export type ActiveAgent = 'master' | 'reservation' | 'service';
+
+export type Language = 'en' | 'es' | 'pt';
+
+export interface IntakeMessage {
+  callerName: string | null;
+  callerPhone: string | null;
+  callerEmail: string | null;
+  reason: string | null;
+  additionalNotes: string | null;
+}
+
+export interface ReservationDetails {
+  reservationId: string | null;
+  guestName: string | null;
+  propertyName: string | null;
+  checkInDate: string | null;
+  checkOutDate: string | null;
+  confirmed: boolean;
+}
+
+export interface ServiceRequest {
+  type: 'cleaning' | 'maintenance' | 'services' | null;
+  subType: string | null; // plumbing, ac, pool_heater, rental_grill, etc.
+  description: string | null;
+  urgency: 'low' | 'medium' | 'high' | null;
 }
 
 export interface ConversationContext {
   callId: string;
   state: CallState;
-  intent: CallIntent;
+  activeAgent: ActiveAgent;
 
-  // Customer info gathered during call
-  customerEmail: string | null;
-  customerFirstName: string | null;
-  customerLastName: string | null;
-  customerPhone: string | null;
-  customerId: number | null;
+  // Intent at each level
+  topIntent: CallIntent;
+  futureGuestIntent: FutureGuestIntent;
+  existingGuestIntent: ExistingGuestIntent;
 
-  // Search criteria
-  region: string | null;
-  checkInDate: string | null;
-  checkOutDate: string | null;
-  guestCount: number | null;
-  budget: number | null;
+  // Language detected
+  language: Language;
 
-  // Booking in progress
-  selectedPropertyId: number | null;
-  pendingBookingSummary: BookingSummary | null;
-  confirmedBookingCode: string | null;
+  // Caller identity
+  callerName: string | null;
+  callerPhone: string | null;
+  callerEmail: string | null;
 
-  // Properties shown this call (for logging)
-  propertiesShown: number[];
+  // Existing guest data (populated via DB lookup)
+  reservation: ReservationDetails;
 
-  // Conversation messages for LLM context
+  // For intake branches (business inquiry, future guest reservation)
+  intakeMessage: IntakeMessage;
+
+  // For service agent branch
+  serviceRequest: ServiceRequest;
+
+  // Conversation history for LLM
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
 
   // Meta
   escalationReason: string | null;
   startedAt: Date;
   clarificationAttempts: number;
+  isBusinessHours: boolean;
 }
 
-// Valid state transitions — enforces call flow logic
+// Enforce valid transitions per the call flow diagram
 const VALID_TRANSITIONS: Record<CallState, CallState[]> = {
-  GREETING: ['INTENT_CLASSIFICATION', 'ESCALATED'],
-  INTENT_CLASSIFICATION: ['GATHERING_INFO', 'ESCALATED'],
-  GATHERING_INFO: ['SEARCHING', 'ESCALATED'],
-  SEARCHING: ['PRESENTING', 'GATHERING_INFO', 'ESCALATED'],
-  PRESENTING: ['COLLECTING_DETAILS', 'GATHERING_INFO', 'ESCALATED'],
-  COLLECTING_DETAILS: ['CONFIRMING', 'ESCALATED'],
-  CONFIRMING: ['BOOKING', 'GATHERING_INFO', 'ESCALATED'],
-  BOOKING: ['CLOSED', 'ESCALATED'],
-  CLOSED: [],
-  ESCALATED: [],
+  GREETING:                     ['INTENT_CLASSIFICATION', 'ESCALATED'],
+  INTENT_CLASSIFICATION:        ['BUSINESS_INQUIRY_COLLECTING', 'GENERAL_INFO_ANSWERING', 'FUTURE_GUEST_ROUTING', 'VERIFYING_RESERVATION', 'ESCALATED'],
+  BUSINESS_INQUIRY_COLLECTING:  ['BUSINESS_INQUIRY_LOGGED', 'ESCALATED'],
+  BUSINESS_INQUIRY_LOGGED:      ['CLOSED'],
+  GENERAL_INFO_ANSWERING:       ['CLOSED', 'INTENT_CLASSIFICATION', 'ESCALATED'],
+  FUTURE_GUEST_ROUTING:         ['FUTURE_GUEST_RESERVATION', 'FUTURE_GUEST_INFO', 'ESCALATED'],
+  FUTURE_GUEST_RESERVATION:     ['CLOSED', 'ESCALATED'],
+  FUTURE_GUEST_INFO:            ['CLOSED', 'FUTURE_GUEST_ROUTING', 'ESCALATED'],
+  VERIFYING_RESERVATION:        ['EXISTING_GUEST_ROUTING', 'ESCALATED'],
+  EXISTING_GUEST_ROUTING:       ['RESERVATION_AGENT', 'SERVICE_AGENT', 'ESCALATED'],
+  RESERVATION_AGENT:            ['CLOSED', 'EXISTING_GUEST_ROUTING', 'ESCALATED'],
+  SERVICE_AGENT:                ['CLOSED', 'EXISTING_GUEST_ROUTING', 'ESCALATED'],
+  CLOSED:                       [],
+  ESCALATED:                    [],
 };
+
+const isBusinessHoursNow = (): boolean => {
+  // Business hours: 9AM–9PM in Eastern Time (adjust timezone as needed)
+  const now = new Date();
+  const ET = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    hour12: false,
+  }).format(now);
+  const hour = parseInt(ET, 10);
+  return hour >= 9 && hour < 21;
+};
+
+const emptyReservation = (): ReservationDetails => ({
+  reservationId: null,
+  guestName: null,
+  propertyName: null,
+  checkInDate: null,
+  checkOutDate: null,
+  confirmed: false,
+});
+
+const emptyIntake = (): IntakeMessage => ({
+  callerName: null,
+  callerPhone: null,
+  callerEmail: null,
+  reason: null,
+  additionalNotes: null,
+});
+
+const emptyServiceRequest = (): ServiceRequest => ({
+  type: null,
+  subType: null,
+  description: null,
+  urgency: null,
+});
 
 export const StateMachine = {
   initialize: (callId: string): ConversationContext => ({
     callId,
     state: 'GREETING',
-    intent: 'unknown',
+    activeAgent: 'master',
 
-    customerEmail: null,
-    customerFirstName: null,
-    customerLastName: null,
-    customerPhone: null,
-    customerId: null,
+    topIntent: 'unknown',
+    futureGuestIntent: 'unknown',
+    existingGuestIntent: 'unknown',
 
-    region: null,
-    checkInDate: null,
-    checkOutDate: null,
-    guestCount: null,
-    budget: null,
+    language: 'en',
 
-    selectedPropertyId: null,
-    pendingBookingSummary: null,
-    confirmedBookingCode: null,
+    callerName: null,
+    callerPhone: null,
+    callerEmail: null,
 
-    propertiesShown: [],
+    reservation: emptyReservation(),
+    intakeMessage: emptyIntake(),
+    serviceRequest: emptyServiceRequest(),
+
     messages: [],
 
     escalationReason: null,
     startedAt: new Date(),
     clarificationAttempts: 0,
+    isBusinessHours: isBusinessHoursNow(),
   }),
 
-  transition: (
-    context: ConversationContext,
-    newState: CallState
-  ): ConversationContext => {
-    const allowed = VALID_TRANSITIONS[context.state];
+  transition: (ctx: ConversationContext, newState: CallState): ConversationContext => {
+    const allowed = VALID_TRANSITIONS[ctx.state];
     if (!allowed.includes(newState)) {
-      // Allow transition anyway but log the anomaly
-      console.warn(
-        `Unexpected state transition: ${context.state} → ${newState}`
-      );
+      console.warn(`Unexpected state transition: ${ctx.state} → ${newState}`);
     }
-    return { ...context, state: newState };
+    return { ...ctx, state: newState };
   },
 
   addMessage: (
-    context: ConversationContext,
+    ctx: ConversationContext,
     role: 'user' | 'assistant',
     content: string
   ): ConversationContext => ({
-    ...context,
-    messages: [...context.messages, { role, content }],
+    ...ctx,
+    messages: [...ctx.messages, { role, content }],
   }),
 
-  updateCustomerInfo: (
-    context: ConversationContext,
-    updates: Partial<Pick<
-      ConversationContext,
-      'customerEmail' | 'customerFirstName' | 'customerLastName' |
-      'customerPhone' | 'customerId'
-    >>
-  ): ConversationContext => ({ ...context, ...updates }),
-
-  updateSearchCriteria: (
-    context: ConversationContext,
-    updates: Partial<Pick<
-      ConversationContext,
-      'region' | 'checkInDate' | 'checkOutDate' | 'guestCount' | 'budget'
-    >>
-  ): ConversationContext => ({ ...context, ...updates }),
-
-  setSelectedProperty: (
-    context: ConversationContext,
-    propertyId: number,
-    summary: BookingSummary
+  setIntent: (
+    ctx: ConversationContext,
+    intent: CallIntent
   ): ConversationContext => ({
-    ...context,
-    selectedPropertyId: propertyId,
-    pendingBookingSummary: summary,
-    propertiesShown: context.propertiesShown.includes(propertyId)
-      ? context.propertiesShown
-      : [...context.propertiesShown, propertyId],
+    ...ctx,
+    topIntent: intent,
+    activeAgent: intent === 'existing_guest' ? 'master' : 'master',
   }),
 
-  trackPropertyShown: (
-    context: ConversationContext,
-    propertyIds: number[]
+  setExistingGuestIntent: (
+    ctx: ConversationContext,
+    intent: ExistingGuestIntent
+  ): ConversationContext => {
+    const isServiceIntent = ['cleaning', 'maintenance', 'services'].includes(intent);
+    return {
+      ...ctx,
+      existingGuestIntent: intent,
+      activeAgent: isServiceIntent ? 'service' : 'reservation',
+      state: isServiceIntent ? 'SERVICE_AGENT' : 'RESERVATION_AGENT',
+    };
+  },
+
+  setFutureGuestIntent: (
+    ctx: ConversationContext,
+    intent: FutureGuestIntent
   ): ConversationContext => ({
-    ...context,
-    propertiesShown: [
-      ...new Set([...context.propertiesShown, ...propertyIds]),
-    ],
+    ...ctx,
+    futureGuestIntent: intent,
+    state: intent === 'make_reservation' ? 'FUTURE_GUEST_RESERVATION' : 'FUTURE_GUEST_INFO',
   }),
 
-  confirmBooking: (
-    context: ConversationContext,
-    confirmationCode: string
-  ): ConversationContext => ({
-    ...context,
-    confirmedBookingCode: confirmationCode,
-    state: 'CLOSED',
+  setLanguage: (ctx: ConversationContext, language: Language): ConversationContext => ({
+    ...ctx,
+    language,
   }),
 
-  escalate: (
-    context: ConversationContext,
-    reason: string
+  setCallerInfo: (
+    ctx: ConversationContext,
+    updates: Partial<Pick<ConversationContext, 'callerName' | 'callerPhone' | 'callerEmail'>>
+  ): ConversationContext => ({ ...ctx, ...updates }),
+
+  setReservation: (
+    ctx: ConversationContext,
+    reservation: Partial<ReservationDetails>
   ): ConversationContext => ({
-    ...context,
+    ...ctx,
+    reservation: { ...ctx.reservation, ...reservation },
+  }),
+
+  updateIntake: (
+    ctx: ConversationContext,
+    updates: Partial<IntakeMessage>
+  ): ConversationContext => ({
+    ...ctx,
+    intakeMessage: { ...ctx.intakeMessage, ...updates },
+  }),
+
+  updateServiceRequest: (
+    ctx: ConversationContext,
+    updates: Partial<ServiceRequest>
+  ): ConversationContext => ({
+    ...ctx,
+    serviceRequest: { ...ctx.serviceRequest, ...updates },
+  }),
+
+  escalate: (ctx: ConversationContext, reason: string): ConversationContext => ({
+    ...ctx,
     state: 'ESCALATED',
     escalationReason: reason,
   }),
 
-  // Returns what info is still missing for booking
-  getMissingInfo: (context: ConversationContext): string[] => {
+  close: (ctx: ConversationContext): ConversationContext => ({
+    ...ctx,
+    state: 'CLOSED',
+  }),
+
+  incrementClarificationAttempts: (ctx: ConversationContext): ConversationContext => ({
+    ...ctx,
+    clarificationAttempts: ctx.clarificationAttempts + 1,
+  }),
+
+  callDurationSeconds: (ctx: ConversationContext): number =>
+    Math.round((Date.now() - ctx.startedAt.getTime()) / 1000),
+
+  getMissingIntakeFields: (ctx: ConversationContext): string[] => {
     const missing: string[] = [];
-    if (!context.region) missing.push('destination');
-    if (!context.checkInDate) missing.push('check-in date');
-    if (!context.checkOutDate) missing.push('check-out date');
-    if (!context.guestCount) missing.push('number of guests');
+    if (!ctx.callerName && !ctx.intakeMessage.callerName) missing.push('name');
+    if (!ctx.callerPhone && !ctx.intakeMessage.callerPhone) missing.push('phone number');
+    if (!ctx.intakeMessage.reason) missing.push('reason for calling');
     return missing;
   },
-
-  getMissingCustomerInfo: (context: ConversationContext): string[] => {
-    const missing: string[] = [];
-    if (!context.customerFirstName) missing.push('first name');
-    if (!context.customerLastName) missing.push('last name');
-    if (!context.customerEmail) missing.push('email address');
-    if (!context.customerPhone) missing.push('phone number');
-    return missing;
-  },
-
-  isReadyToSearch: (context: ConversationContext): boolean =>
-    !!(context.region && context.checkInDate && context.checkOutDate && context.guestCount),
-
-  isReadyToBook: (context: ConversationContext): boolean =>
-    !!(
-      context.selectedPropertyId &&
-      context.customerId &&
-      context.checkInDate &&
-      context.checkOutDate &&
-      context.guestCount &&
-      context.pendingBookingSummary
-    ),
-
-  callDurationSeconds: (context: ConversationContext): number =>
-    Math.round((Date.now() - context.startedAt.getTime()) / 1000),
 };

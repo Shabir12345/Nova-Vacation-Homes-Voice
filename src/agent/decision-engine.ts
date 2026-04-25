@@ -1,10 +1,20 @@
-// Decision engine — processes LLM responses, executes tool calls,
-// and advances the conversation state
+// Decision engine — routes each turn to the correct agent (master/reservation/service),
+// executes tool calls, and advances conversation state
 
 import Anthropic from '@anthropic-ai/sdk';
 import { ConversationContext, StateMachine } from './state-machine';
-import { toolDefinitions, executeTool } from './tools';
-import { systemPrompt } from './prompts';
+import {
+  masterAgentTools,
+  reservationAgentTools,
+  serviceAgentTools,
+  executeTool,
+} from './tools';
+import {
+  masterAgentPrompt,
+  reservationAgentPrompt,
+  serviceAgentPrompt,
+  buildContextNotes,
+} from './prompts';
 import { CallLogService } from '../services/calllog.service';
 import { logger } from '../utils/logger';
 
@@ -14,26 +24,125 @@ export interface TurnResult {
   context: ConversationContext;
   agentResponse: string;
   escalated: boolean;
-  bookingConfirmed: boolean;
-  confirmationCode?: string;
 }
 
-// Process one conversation turn: send message, handle tools, return response
+// Select the right tools for the active agent
+const getToolsForAgent = (ctx: ConversationContext): Anthropic.Tool[] => {
+  switch (ctx.activeAgent) {
+    case 'reservation': return reservationAgentTools;
+    case 'service':     return serviceAgentTools;
+    default:            return masterAgentTools;
+  }
+};
+
+// Build the correct system prompt for the active agent
+const buildSystemPrompt = (ctx: ConversationContext): string => {
+  const contextNotes = buildContextNotes({
+    isBusinessHours: ctx.isBusinessHours,
+    callerName: ctx.callerName,
+    topIntent: ctx.topIntent,
+    existingGuestIntent: ctx.existingGuestIntent,
+    reservationId: ctx.reservation.reservationId,
+    propertyName: ctx.reservation.propertyName,
+  });
+
+  const reservationDetails = ctx.reservation.confirmed
+    ? `Name: ${ctx.reservation.guestName}\nProperty: ${ctx.reservation.propertyName}\n` +
+      `Check-in: ${ctx.reservation.checkInDate}  Check-out: ${ctx.reservation.checkOutDate}\n` +
+      `Reservation ID: ${ctx.reservation.reservationId}`
+    : 'Reservation not yet verified.';
+
+  switch (ctx.activeAgent) {
+    case 'reservation':
+      return reservationAgentPrompt(ctx.language, reservationDetails, contextNotes);
+    case 'service':
+      return serviceAgentPrompt(ctx.language, reservationDetails, contextNotes);
+    default:
+      return masterAgentPrompt(ctx.language, ctx.state, contextNotes);
+  }
+};
+
+// Apply side effects from tool calls back to the conversation context
+const applyToolSideEffects = (
+  ctx: ConversationContext,
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  toolData: unknown
+): ConversationContext => {
+  const data = toolData as Record<string, unknown>;
+
+  switch (toolName) {
+    case 'detect_language':
+      return StateMachine.setLanguage(ctx, data['language'] as 'en' | 'es' | 'pt');
+
+    case 'classify_intent': {
+      const intent = data['intent'] as ConversationContext['topIntent'];
+      ctx = StateMachine.setIntent(ctx, intent);
+      switch (intent) {
+        case 'business_inquiry':    return StateMachine.transition(ctx, 'BUSINESS_INQUIRY_COLLECTING');
+        case 'general_information': return StateMachine.transition(ctx, 'GENERAL_INFO_ANSWERING');
+        case 'future_guest':        return StateMachine.transition(ctx, 'FUTURE_GUEST_ROUTING');
+        case 'existing_guest':      return StateMachine.transition(ctx, 'VERIFYING_RESERVATION');
+        default: return ctx;
+      }
+    }
+
+    case 'classify_future_guest_intent':
+      return StateMachine.setFutureGuestIntent(
+        ctx,
+        data['intent'] as ConversationContext['futureGuestIntent']
+      );
+
+    case 'verify_reservation': {
+      if (data['found']) {
+        const res = data['reservation'] as Record<string, string>;
+        ctx = StateMachine.setReservation(ctx, {
+          reservationId: res['id'] ?? res['reservationId'],
+          guestName: res['guestName'] ?? res['guest_name'],
+          propertyName: res['propertyName'] ?? res['property_name'],
+          checkInDate: res['checkInDate'] ?? res['check_in_date'],
+          checkOutDate: res['checkOutDate'] ?? res['check_out_date'],
+          confirmed: true,
+        });
+        return StateMachine.transition(ctx, 'EXISTING_GUEST_ROUTING');
+      }
+      return ctx;
+    }
+
+    case 'classify_existing_guest_intent':
+      return StateMachine.setExistingGuestIntent(
+        ctx,
+        data['intent'] as ConversationContext['existingGuestIntent']
+      );
+
+    case 'log_business_inquiry':
+      return StateMachine.transition(ctx, 'BUSINESS_INQUIRY_LOGGED');
+
+    case 'log_reservation_interest':
+    case 'log_cleaning_request':
+    case 'log_maintenance_request':
+    case 'log_service_request':
+    case 'request_reservation_extension':
+      // These are terminal actions — conversation moves toward CLOSED
+      return ctx;
+
+    default:
+      return ctx;
+  }
+};
+
 export const processTurn = async (
   context: ConversationContext,
   userMessage: string
 ): Promise<TurnResult> => {
-  // Add user message to context
   let ctx = StateMachine.addMessage(context, 'user', userMessage);
 
-  // Log user message
   await CallLogService.logInteraction({
     callId: ctx.callId,
     role: 'user',
     message: userMessage,
   }).catch((err) => logger.warn(err, 'Failed to log user message'));
 
-  // Build messages array for the API
   const messages: Anthropic.MessageParam[] = ctx.messages.map((m) => ({
     role: m.role,
     content: m.content,
@@ -41,25 +150,19 @@ export const processTurn = async (
 
   let agentResponse = '';
   let escalated = false;
-  let bookingConfirmed = false;
-  let confirmationCode: string | undefined;
-
-  // Agentic loop: keep calling until no more tool use
-  let continueLoop = true;
   let currentMessages = messages;
 
+  // Agentic loop — keep calling until no more tool_use blocks
+  let continueLoop = true;
   while (continueLoop) {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
-      system: buildSystemPromptWithContext(ctx),
+      system: buildSystemPrompt(ctx),
       messages: currentMessages,
-      tools: toolDefinitions,
+      tools: getToolsForAgent(ctx),
     });
 
-    logger.debug({ stopReason: response.stop_reason }, 'LLM response received');
-
-    // Collect text from response
     const textBlocks = response.content.filter(
       (b): b is Anthropic.TextBlock => b.type === 'text'
     );
@@ -72,13 +175,11 @@ export const processTurn = async (
     }
 
     if (response.stop_reason === 'tool_use' && toolUseBlocks.length > 0) {
-      // Execute each tool call
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
       for (const toolUse of toolUseBlocks) {
         const result = await executeTool(toolUse.name, toolUse.input);
 
-        // Log tool invocation
         await CallLogService.logInteraction({
           callId: ctx.callId,
           role: 'assistant',
@@ -88,24 +189,9 @@ export const processTurn = async (
           toolResult: result as Record<string, unknown>,
         }).catch((err) => logger.warn(err, 'Failed to log tool call'));
 
-        // Handle escalation immediately
-        if (toolUse.name === 'escalate_to_human') {
-          escalated = true;
-          ctx = StateMachine.escalate(ctx, (toolUse.input as { reason: string }).reason);
-        }
-
-        // Handle booking confirmation
-        if (toolUse.name === 'create_booking' && result.success) {
-          const bookingData = result.data as { confirmationCode: string };
-          confirmationCode = bookingData.confirmationCode;
-          bookingConfirmed = true;
-          ctx = StateMachine.confirmBooking(ctx, confirmationCode);
-        }
-
-        // Track properties shown
-        if (toolUse.name === 'search_properties' && result.success) {
-          const data = result.data as { properties: Array<{ id: number }> };
-          ctx = StateMachine.trackPropertyShown(ctx, data.properties.map((p) => p.id));
+        // Apply state side effects from tool results
+        if (result.success && result.data) {
+          ctx = applyToolSideEffects(ctx, toolUse.name, toolUse.input as Record<string, unknown>, result.data);
         }
 
         toolResults.push({
@@ -118,19 +204,16 @@ export const processTurn = async (
         });
       }
 
-      // Continue loop with tool results appended
       currentMessages = [
         ...currentMessages,
         { role: 'assistant', content: response.content },
         { role: 'user', content: toolResults },
       ];
     } else {
-      // No more tool calls — agent is done for this turn
       continueLoop = false;
     }
   }
 
-  // Add assistant response to context
   if (agentResponse) {
     ctx = StateMachine.addMessage(ctx, 'assistant', agentResponse);
 
@@ -141,36 +224,5 @@ export const processTurn = async (
     }).catch((err) => logger.warn(err, 'Failed to log assistant message'));
   }
 
-  return { context: ctx, agentResponse, escalated, bookingConfirmed, confirmationCode };
-};
-
-// Build a system prompt that includes the current conversation state as context
-const buildSystemPromptWithContext = (ctx: ConversationContext): string => {
-  const stateContext: string[] = [];
-
-  if (ctx.region) stateContext.push(`Destination: ${ctx.region}`);
-  if (ctx.checkInDate) stateContext.push(`Check-in: ${ctx.checkInDate}`);
-  if (ctx.checkOutDate) stateContext.push(`Check-out: ${ctx.checkOutDate}`);
-  if (ctx.guestCount) stateContext.push(`Guests: ${ctx.guestCount}`);
-  if (ctx.budget) stateContext.push(`Budget: up to $${ctx.budget}/night`);
-  if (ctx.customerFirstName) stateContext.push(`Customer: ${ctx.customerFirstName} ${ctx.customerLastName ?? ''}`);
-  if (ctx.customerEmail) stateContext.push(`Email: ${ctx.customerEmail}`);
-  if (ctx.selectedPropertyId) stateContext.push(`Selected property ID: ${ctx.selectedPropertyId}`);
-
-  const missingSearch = StateMachine.getMissingInfo(ctx);
-  const missingCustomer = StateMachine.getMissingCustomerInfo(ctx);
-
-  let contextBlock = '';
-  if (stateContext.length > 0) {
-    contextBlock += `\n\n## Current conversation state\nState: ${ctx.state}\n`;
-    contextBlock += stateContext.join('\n');
-  }
-  if (missingSearch.length > 0 && ctx.state === 'GATHERING_INFO') {
-    contextBlock += `\nStill needed to search: ${missingSearch.join(', ')}`;
-  }
-  if (missingCustomer.length > 0 && ctx.state === 'COLLECTING_DETAILS') {
-    contextBlock += `\nStill needed to book: ${missingCustomer.join(', ')}`;
-  }
-
-  return systemPrompt + contextBlock;
+  return { context: ctx, agentResponse, escalated };
 };

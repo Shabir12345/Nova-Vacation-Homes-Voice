@@ -1,254 +1,311 @@
-// Agent tool definitions — these are the structured functions the LLM can call
-// Each tool maps directly to a service operation with a typed schema for Claude's tool use API
+// Agent tool definitions — one tool per action node in the call flow diagram
+// Tools are grouped by which agent uses them: Master, Reservation Agent, Service Agent
 
 import Anthropic from '@anthropic-ai/sdk';
-import { PropertyService } from '../services/property.service';
-import { BookingService } from '../services/booking.service';
-import { CustomerService } from '../services/customer.service';
+import { ClientDbService } from '../services/client-db.service';
+import { IntakeService } from '../services/intake.service';
+import { FaqService } from '../services/faq.service';
 import { logger } from '../utils/logger';
 
 // ─── Tool Definitions (schema sent to Claude) ────────────────────────────────
 
-export const toolDefinitions: Anthropic.Tool[] = [
+export const masterAgentTools: Anthropic.Tool[] = [
   {
-    name: 'search_properties',
+    name: 'detect_language',
     description:
-      'Search for available vacation properties based on customer criteria. ' +
-      'Use this after collecting dates, guest count, and region from the customer.',
+      'Detect the language the caller is speaking and set it for the conversation. ' +
+      'Call this at the very start if the greeting or first message is not in English.',
     input_schema: {
       type: 'object',
       properties: {
+        detected_language: {
+          type: 'string',
+          enum: ['en', 'es', 'pt'],
+          description: 'Detected language: en (English), es (Spanish), pt (Portuguese)',
+        },
+      },
+      required: ['detected_language'],
+    },
+  },
+  {
+    name: 'classify_intent',
+    description:
+      'Classify the caller\'s primary reason for calling. Call this once you understand why they are calling.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        intent: {
+          type: 'string',
+          enum: ['business_inquiry', 'general_information', 'future_guest', 'existing_guest'],
+          description:
+            'business_inquiry: non-guest business call (property owners, vendors, etc.). ' +
+            'general_information: questions not tied to a reservation. ' +
+            'future_guest: interested in booking / not yet reserved. ' +
+            'existing_guest: has an active or recent reservation.',
+        },
+      },
+      required: ['intent'],
+    },
+  },
+  {
+    name: 'lookup_faq',
+    description:
+      'Search the FAQ database for an answer to a general information question. ' +
+      'Use for Branch 2 (General Information) callers.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: 'The caller\'s question in plain text',
+        },
+      },
+      required: ['question'],
+    },
+  },
+  {
+    name: 'log_business_inquiry',
+    description:
+      'Log a business inquiry call. Use for Branch 1 (Business Inquiry) after collecting all info. ' +
+      'Tells the caller a team member will follow up.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        caller_name: { type: 'string', description: 'Caller\'s full name' },
+        caller_phone: { type: 'string', description: 'Caller\'s phone number' },
+        caller_email: { type: 'string', description: 'Caller\'s email (optional)' },
+        inquiry_type: {
+          type: 'string',
+          enum: ['property_owner', 'realtor', 'vendor_cleaning', 'vendor_software', 'vendor_other', 'other'],
+          description: 'Type of business inquiry',
+        },
+        reason: { type: 'string', description: 'Summary of what the call is about' },
+      },
+      required: ['caller_name', 'caller_phone', 'inquiry_type', 'reason'],
+    },
+  },
+  {
+    name: 'classify_future_guest_intent',
+    description:
+      'For Future Guest callers — determine whether they want to make a reservation ' +
+      'or just get general property information.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        intent: {
+          type: 'string',
+          enum: ['make_reservation', 'general_information'],
+          description:
+            'make_reservation: they want to book a property. ' +
+            'general_information: they want info about properties, pricing, availability.',
+        },
+      },
+      required: ['intent'],
+    },
+  },
+  {
+    name: 'log_reservation_interest',
+    description:
+      'Log a future guest\'s reservation interest. Agent does NOT complete the booking — ' +
+      'a staff member will follow up. Collect all details first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        caller_name: { type: 'string', description: 'Caller\'s full name' },
+        caller_phone: { type: 'string', description: 'Caller\'s phone number' },
+        caller_email: { type: 'string', description: 'Caller\'s email (optional)' },
+        desired_destination: { type: 'string', description: 'Where they want to go' },
+        check_in_date: { type: 'string', description: 'Desired check-in date (YYYY-MM-DD or natural language)' },
+        check_out_date: { type: 'string', description: 'Desired check-out date (YYYY-MM-DD or natural language)' },
+        guest_count: { type: 'number', description: 'Number of guests' },
+        budget: { type: 'string', description: 'Budget range (optional)' },
+        special_requests: { type: 'string', description: 'Any special requests (optional)' },
+      },
+      required: ['caller_name', 'caller_phone', 'desired_destination'],
+    },
+  },
+  {
+    name: 'lookup_property_info',
+    description:
+      'Look up general property information from the client database. ' +
+      'Use for Future Guest general info requests and general property questions.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What the caller wants to know about — location, amenities, pricing, availability, etc.',
+        },
         region: {
           type: 'string',
-          description: 'Destination region or city (e.g. "Cancun", "Miami", "Key West")',
-        },
-        check_in_date: {
-          type: 'string',
-          description: 'Check-in date in YYYY-MM-DD format',
-        },
-        check_out_date: {
-          type: 'string',
-          description: 'Check-out date in YYYY-MM-DD format',
-        },
-        guest_count: {
-          type: 'number',
-          description: 'Total number of guests including children',
-        },
-        max_budget_per_night: {
-          type: 'number',
-          description: 'Maximum price per night in USD (optional)',
-        },
-        min_bedrooms: {
-          type: 'number',
-          description: 'Minimum number of bedrooms required (optional)',
-        },
-        amenities: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Desired amenities (optional). Options: pool, hot_tub, ocean_view, beach_access, ' +
-            'kitchen, wifi, concierge, pet_friendly',
+          description: 'Region or destination they are interested in (optional)',
         },
       },
-      required: ['region', 'check_in_date', 'check_out_date', 'guest_count'],
+      required: ['query'],
     },
   },
   {
-    name: 'get_property_details',
+    name: 'verify_reservation',
     description:
-      'Get full details for a specific property including amenities, house rules, ' +
-      'cancellation policy, and pricing for the requested dates.',
+      'Verify an existing guest\'s reservation by looking it up in the client database. ' +
+      'Use as the first step for any existing guest call.',
     input_schema: {
       type: 'object',
       properties: {
-        property_id: {
-          type: 'number',
-          description: 'The numeric ID of the property',
-        },
-        check_in_date: {
-          type: 'string',
-          description: 'Check-in date in YYYY-MM-DD format (for pricing calculation)',
-        },
-        check_out_date: {
-          type: 'string',
-          description: 'Check-out date in YYYY-MM-DD format (for pricing calculation)',
-        },
+        caller_name: { type: 'string', description: 'Guest\'s full name' },
+        caller_email: { type: 'string', description: 'Guest\'s email address (optional but preferred)' },
+        confirmation_code: { type: 'string', description: 'Reservation/booking confirmation code (optional)' },
       },
-      required: ['property_id', 'check_in_date', 'check_out_date'],
+      required: ['caller_name'],
     },
   },
   {
-    name: 'check_availability',
+    name: 'classify_existing_guest_intent',
     description:
-      'Check real-time availability and get exact pricing for a specific property and dates. ' +
-      'Always call this before quoting a final price or confirming a booking.',
+      'After verifying the reservation, determine what the existing guest needs. ' +
+      'Routes to Reservation Agent or Service Agent.',
     input_schema: {
       type: 'object',
       properties: {
-        property_id: {
-          type: 'number',
-          description: 'The numeric ID of the property',
-        },
-        check_in_date: {
-          type: 'string',
-          description: 'Check-in date in YYYY-MM-DD format',
-        },
-        check_out_date: {
-          type: 'string',
-          description: 'Check-out date in YYYY-MM-DD format',
-        },
-      },
-      required: ['property_id', 'check_in_date', 'check_out_date'],
-    },
-  },
-  {
-    name: 'get_customer_by_email',
-    description:
-      'Look up an existing customer by email address to retrieve their profile ' +
-      'and booking history. Use this when a customer mentions an existing reservation.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        email: {
-          type: 'string',
-          description: "Customer's email address",
-        },
-      },
-      required: ['email'],
-    },
-  },
-  {
-    name: 'create_customer',
-    description:
-      'Create a new customer record. Use this after collecting name, email, and phone ' +
-      'from a first-time caller who is ready to book.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        email: { type: 'string', description: "Customer's email address" },
-        first_name: { type: 'string', description: "Customer's first name" },
-        last_name: { type: 'string', description: "Customer's last name" },
-        phone: { type: 'string', description: "Customer's phone number" },
-      },
-      required: ['email', 'first_name', 'last_name'],
-    },
-  },
-  {
-    name: 'create_booking',
-    description:
-      'Create a confirmed reservation. Only call this AFTER: ' +
-      '(1) availability has been verified, ' +
-      '(2) all customer details are collected, ' +
-      '(3) customer has explicitly confirmed the booking summary. ' +
-      'This is irreversible — a confirmation email is sent immediately.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        property_id: { type: 'number', description: 'Property ID' },
-        customer_id: { type: 'number', description: 'Customer ID (from get_customer or create_customer)' },
-        check_in_date: { type: 'string', description: 'Check-in date YYYY-MM-DD' },
-        check_out_date: { type: 'string', description: 'Check-out date YYYY-MM-DD' },
-        guest_count: { type: 'number', description: 'Number of guests' },
-        total_price: { type: 'number', description: 'Total price in USD including all fees' },
-        special_requests: {
-          type: 'string',
-          description: "Customer's special requests (optional)",
-        },
-      },
-      required: [
-        'property_id',
-        'customer_id',
-        'check_in_date',
-        'check_out_date',
-        'guest_count',
-        'total_price',
-      ],
-    },
-  },
-  {
-    name: 'escalate_to_human',
-    description:
-      'Transfer the call to a human agent. Use this when: ' +
-      'customer requests a human, existing booking needs modification, ' +
-      'payment issues arise, customer is frustrated, or you are uncertain how to proceed.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        reason: {
+        intent: {
           type: 'string',
           enum: [
-            'customer_request',
-            'existing_booking_modification',
-            'payment_issue',
-            'customer_distress',
-            'system_error',
-            'complex_request',
-            'unclear_intent',
+            'general_information',
+            'listing_information',
+            'check_in_check_out',
+            'extend_reservation',
+            'cleaning',
+            'maintenance',
+            'services',
           ],
-          description: 'Reason for escalation',
-        },
-        summary: {
-          type: 'string',
           description:
-            'Brief summary of the conversation so far for the human agent (1-2 sentences)',
+            'general_information: general questions about their stay. ' +
+            'listing_information: questions about the property/listing. ' +
+            'check_in_check_out: check-in/out times, procedures, or issues. ' +
+            'extend_reservation: want to extend their stay. ' +
+            'cleaning: request cleaning service. ' +
+            'maintenance: report maintenance issue (plumbing, AC, etc.). ' +
+            'services: request additional services (pool heater, rental grill, etc.).',
         },
       },
-      required: ['reason', 'summary'],
+      required: ['intent'],
     },
   },
 ];
 
-// ─── Tool Input Types ─────────────────────────────────────────────────────────
+export const reservationAgentTools: Anthropic.Tool[] = [
+  {
+    name: 'get_reservation_general_info',
+    description: 'Look up general information about the guest\'s reservation from the database.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reservation_id: { type: 'string', description: 'Reservation ID from verification step' },
+        question: { type: 'string', description: 'The specific question the guest has' },
+      },
+      required: ['reservation_id', 'question'],
+    },
+  },
+  {
+    name: 'get_listing_information',
+    description: 'Look up property/listing details for the guest\'s reserved property.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reservation_id: { type: 'string', description: 'Reservation ID' },
+        question: { type: 'string', description: 'What the guest wants to know about the property' },
+      },
+      required: ['reservation_id', 'question'],
+    },
+  },
+  {
+    name: 'get_checkin_checkout_info',
+    description: 'Get check-in and check-out details, times, and procedures for the reservation.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reservation_id: { type: 'string', description: 'Reservation ID' },
+      },
+      required: ['reservation_id'],
+    },
+  },
+  {
+    name: 'request_reservation_extension',
+    description:
+      'Log a reservation extension request. Does not modify the booking directly — ' +
+      'logs for staff to action.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reservation_id: { type: 'string', description: 'Reservation ID' },
+        current_checkout: { type: 'string', description: 'Current check-out date' },
+        requested_checkout: { type: 'string', description: 'Requested new check-out date' },
+        notes: { type: 'string', description: 'Any additional notes from the guest' },
+      },
+      required: ['reservation_id', 'requested_checkout'],
+    },
+  },
+];
 
-interface SearchPropertiesInput {
-  region: string;
-  check_in_date: string;
-  check_out_date: string;
-  guest_count: number;
-  max_budget_per_night?: number;
-  min_bedrooms?: number;
-  amenities?: string[];
-}
+export const serviceAgentTools: Anthropic.Tool[] = [
+  {
+    name: 'log_cleaning_request',
+    description: 'Log a cleaning service request for the guest\'s property.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reservation_id: { type: 'string', description: 'Reservation ID' },
+        preferred_time: { type: 'string', description: 'Preferred time for cleaning (optional)' },
+        notes: { type: 'string', description: 'Any specific cleaning notes from the guest' },
+      },
+      required: ['reservation_id'],
+    },
+  },
+  {
+    name: 'log_maintenance_request',
+    description: 'Log a maintenance issue reported by the guest.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reservation_id: { type: 'string', description: 'Reservation ID' },
+        maintenance_type: {
+          type: 'string',
+          enum: ['plumbing', 'ac', 'electrical', 'appliance', 'structural', 'other'],
+          description: 'Type of maintenance issue',
+        },
+        description: { type: 'string', description: 'Description of the issue' },
+        urgency: {
+          type: 'string',
+          enum: ['low', 'medium', 'high', 'emergency'],
+          description: 'Urgency level — emergency for safety/habitability issues',
+        },
+      },
+      required: ['reservation_id', 'maintenance_type', 'description', 'urgency'],
+    },
+  },
+  {
+    name: 'log_service_request',
+    description: 'Log a request for additional services (pool heater, rental grill, etc.).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reservation_id: { type: 'string', description: 'Reservation ID' },
+        service_type: {
+          type: 'string',
+          enum: ['pool_heater', 'rental_grill', 'extra_linens', 'crib', 'other'],
+          description: 'Type of service requested',
+        },
+        details: { type: 'string', description: 'Any additional details about the request' },
+      },
+      required: ['reservation_id', 'service_type'],
+    },
+  },
+];
 
-interface GetPropertyDetailsInput {
-  property_id: number;
-  check_in_date: string;
-  check_out_date: string;
-}
+// All tools combined — decision engine selects the right set per active agent
+export const allTools = [...masterAgentTools, ...reservationAgentTools, ...serviceAgentTools];
 
-interface CheckAvailabilityInput {
-  property_id: number;
-  check_in_date: string;
-  check_out_date: string;
-}
-
-interface GetCustomerByEmailInput {
-  email: string;
-}
-
-interface CreateCustomerInput {
-  email: string;
-  first_name: string;
-  last_name: string;
-  phone?: string;
-}
-
-interface CreateBookingInput {
-  property_id: number;
-  customer_id: number;
-  check_in_date: string;
-  check_out_date: string;
-  guest_count: number;
-  total_price: number;
-  special_requests?: string;
-}
-
-interface EscalateToHumanInput {
-  reason: string;
-  summary: string;
-}
-
-// ─── Tool Executor ────────────────────────────────────────────────────────────
+// ─── Tool Result Types ────────────────────────────────────────────────────────
 
 export interface ToolResult {
   success: boolean;
@@ -256,176 +313,142 @@ export interface ToolResult {
   error?: string;
 }
 
-export const executeTool = async (
-  toolName: string,
-  input: unknown
-): Promise<ToolResult> => {
+// ─── Tool Executor ────────────────────────────────────────────────────────────
+
+export const executeTool = async (toolName: string, input: unknown): Promise<ToolResult> => {
   logger.info({ tool: toolName }, 'Executing agent tool');
+
+  const params = input as Record<string, unknown>;
 
   try {
     switch (toolName) {
-      case 'search_properties': {
-        const params = input as SearchPropertiesInput;
-        const properties = await PropertyService.searchProperties({
-          region: params.region,
-          checkInDate: params.check_in_date,
-          checkOutDate: params.check_out_date,
-          guestCount: params.guest_count,
-          maxBudgetPerNight: params.max_budget_per_night,
-          minBedrooms: params.min_bedrooms,
-          amenities: params.amenities,
+
+      // ── Master Agent Tools ──────────────────────────────────────────────
+
+      case 'detect_language':
+        return { success: true, data: { language: params['detected_language'], set: true } };
+
+      case 'classify_intent':
+        return { success: true, data: { intent: params['intent'], classified: true } };
+
+      case 'lookup_faq': {
+        const answer = await FaqService.search(params['question'] as string);
+        return { success: true, data: { found: !!answer, answer: answer ?? 'No FAQ match found for that question.' } };
+      }
+
+      case 'log_business_inquiry': {
+        const id = await IntakeService.logBusinessInquiry({
+          callerName: params['caller_name'] as string,
+          callerPhone: params['caller_phone'] as string,
+          callerEmail: params['caller_email'] as string | undefined,
+          inquiryType: params['inquiry_type'] as string,
+          reason: params['reason'] as string,
         });
-        return {
-          success: true,
-          data: {
-            count: properties.length,
-            properties: properties.slice(0, 5).map((p) => ({
-              id: p.id,
-              name: p.name,
-              region: p.region,
-              pricePerNight: p.pricePerNight,
-              bedrooms: p.bedrooms,
-              bathrooms: p.bathrooms,
-              maxGuests: p.maxGuests,
-              amenities: p.amenities,
-              rating: p.rating,
-            })),
-          },
-        };
+        return { success: true, data: { logged: true, intakeId: id, message: 'A member of our team will get back to you shortly.' } };
       }
 
-      case 'get_property_details': {
-        const params = input as GetPropertyDetailsInput;
-        const [property, pricing] = await Promise.all([
-          PropertyService.getPropertyDetails(params.property_id),
-          PropertyService.getAvailabilityAndPricing(
-            params.property_id,
-            params.check_in_date,
-            params.check_out_date
-          ),
-        ]);
+      case 'classify_future_guest_intent':
+        return { success: true, data: { intent: params['intent'], classified: true } };
 
-        if (!property) {
-          return { success: false, error: `Property ${params.property_id} not found` };
-        }
-
-        return {
-          success: true,
-          data: {
-            id: property.id,
-            name: property.name,
-            region: property.region,
-            address: property.address,
-            bedrooms: property.bedrooms,
-            bathrooms: property.bathrooms,
-            maxGuests: property.maxGuests,
-            amenities: property.amenities,
-            houseRules: property.houseRules,
-            cancellationPolicy: property.cancellationPolicy,
-            description: property.description,
-            rating: property.rating,
-            pricing: pricing.breakdown,
-            totalPrice: pricing.totalPrice,
-            available: pricing.available,
-          },
-        };
+      case 'log_reservation_interest': {
+        const id = await IntakeService.logReservationInterest({
+          callerName: params['caller_name'] as string,
+          callerPhone: params['caller_phone'] as string,
+          callerEmail: params['caller_email'] as string | undefined,
+          desiredDestination: params['desired_destination'] as string,
+          checkInDate: params['check_in_date'] as string | undefined,
+          checkOutDate: params['check_out_date'] as string | undefined,
+          guestCount: params['guest_count'] as number | undefined,
+          budget: params['budget'] as string | undefined,
+          specialRequests: params['special_requests'] as string | undefined,
+        });
+        return { success: true, data: { logged: true, intakeId: id, message: 'A member of our team will follow up to confirm the reservation.' } };
       }
 
-      case 'check_availability': {
-        const params = input as CheckAvailabilityInput;
-        const result = await PropertyService.getAvailabilityAndPricing(
-          params.property_id,
-          params.check_in_date,
-          params.check_out_date
+      case 'lookup_property_info': {
+        const info = await ClientDbService.searchProperties(
+          params['query'] as string,
+          params['region'] as string | undefined
         );
-        return {
-          success: true,
-          data: {
-            available: result.available,
-            totalPrice: result.totalPrice,
-            ...result.breakdown,
-          },
-        };
+        return { success: true, data: info };
       }
 
-      case 'get_customer_by_email': {
-        const params = input as GetCustomerByEmailInput;
-        const customer = await CustomerService.getByEmail(params.email);
-        if (!customer) {
-          return { success: true, data: { found: false, email: params.email } };
+      case 'verify_reservation': {
+        const reservation = await ClientDbService.findReservation({
+          guestName: params['caller_name'] as string,
+          email: params['caller_email'] as string | undefined,
+          confirmationCode: params['confirmation_code'] as string | undefined,
+        });
+        if (!reservation) {
+          return { success: true, data: { found: false, message: 'No reservation found with that information.' } };
         }
-        return {
-          success: true,
-          data: {
-            found: true,
-            id: customer.id,
-            email: customer.email,
-            firstName: customer.firstName,
-            lastName: customer.lastName,
-            phone: customer.phone,
-            totalBookings: customer.totalBookings,
-            preferredRegion: customer.preferredRegion,
-          },
-        };
+        return { success: true, data: { found: true, reservation } };
       }
 
-      case 'create_customer': {
-        const params = input as CreateCustomerInput;
-        const customer = await CustomerService.createCustomer({
-          email: params.email,
-          firstName: params.first_name,
-          lastName: params.last_name,
-          phone: params.phone,
+      case 'classify_existing_guest_intent':
+        return { success: true, data: { intent: params['intent'], classified: true } };
+
+      // ── Reservation Agent Tools ─────────────────────────────────────────
+
+      case 'get_reservation_general_info': {
+        const info = await ClientDbService.getReservationInfo(
+          params['reservation_id'] as string,
+          params['question'] as string
+        );
+        return { success: true, data: info };
+      }
+
+      case 'get_listing_information': {
+        const listing = await ClientDbService.getListingInfo(
+          params['reservation_id'] as string,
+          params['question'] as string
+        );
+        return { success: true, data: listing };
+      }
+
+      case 'get_checkin_checkout_info': {
+        const info = await ClientDbService.getCheckinCheckoutInfo(params['reservation_id'] as string);
+        return { success: true, data: info };
+      }
+
+      case 'request_reservation_extension': {
+        const id = await IntakeService.logExtensionRequest({
+          reservationId: params['reservation_id'] as string,
+          currentCheckout: params['current_checkout'] as string | undefined,
+          requestedCheckout: params['requested_checkout'] as string,
+          notes: params['notes'] as string | undefined,
         });
-        return {
-          success: true,
-          data: {
-            id: customer.id,
-            email: customer.email,
-            firstName: customer.firstName,
-            lastName: customer.lastName,
-          },
-        };
+        return { success: true, data: { logged: true, intakeId: id, message: 'Your extension request has been logged. A team member will confirm availability and contact you.' } };
       }
 
-      case 'create_booking': {
-        const params = input as CreateBookingInput;
-        const booking = await BookingService.createBooking({
-          propertyId: params.property_id,
-          customerId: params.customer_id,
-          checkInDate: params.check_in_date,
-          checkOutDate: params.check_out_date,
-          guestCount: params.guest_count,
-          totalPrice: params.total_price,
-          specialRequests: params.special_requests,
+      // ── Service Agent Tools ─────────────────────────────────────────────
+
+      case 'log_cleaning_request': {
+        const id = await IntakeService.logCleaningRequest({
+          reservationId: params['reservation_id'] as string,
+          preferredTime: params['preferred_time'] as string | undefined,
+          notes: params['notes'] as string | undefined,
         });
-        return {
-          success: true,
-          data: {
-            confirmationCode: booking.confirmationCode,
-            propertyId: booking.propertyId,
-            checkInDate: booking.checkInDate,
-            checkOutDate: booking.checkOutDate,
-            totalNights: booking.totalNights,
-            totalPrice: booking.totalPrice,
-            status: booking.status,
-          },
-        };
+        return { success: true, data: { logged: true, intakeId: id, message: 'Your cleaning request has been logged and our team will be in touch.' } };
       }
 
-      case 'escalate_to_human': {
-        const params = input as EscalateToHumanInput;
-        logger.info({ reason: params.reason, summary: params.summary }, 'Escalating to human');
-        // In production: trigger Twilio transfer or notify human agent queue
-        return {
-          success: true,
-          data: {
-            escalated: true,
-            reason: params.reason,
-            message: 'Transferring you to one of our specialists now. One moment please.',
-            estimatedWait: '1-2 minutes',
-          },
-        };
+      case 'log_maintenance_request': {
+        const id = await IntakeService.logMaintenanceRequest({
+          reservationId: params['reservation_id'] as string,
+          maintenanceType: params['maintenance_type'] as string,
+          description: params['description'] as string,
+          urgency: params['urgency'] as string,
+        });
+        return { success: true, data: { logged: true, intakeId: id, message: 'Your maintenance request has been logged. Our team will follow up as soon as possible.' } };
+      }
+
+      case 'log_service_request': {
+        const id = await IntakeService.logServiceRequest({
+          reservationId: params['reservation_id'] as string,
+          serviceType: params['service_type'] as string,
+          details: params['details'] as string | undefined,
+        });
+        return { success: true, data: { logged: true, intakeId: id, message: 'Your service request has been logged and our team will follow up.' } };
       }
 
       default:

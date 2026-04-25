@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { logger } from './utils/logger';
 import { initializeDatabase } from './db/connection';
+import { initializeClientDb } from './services/client-db.service';
 import { createServer } from './server';
 
 dotenv.config();
@@ -17,7 +18,10 @@ async function bootstrap(): Promise<void> {
     }
 
     await initializeDatabase();
-    logger.info('Database connected');
+    logger.info('Our database connected');
+
+    initializeClientDb(); // Non-fatal if CLIENT_DATABASE_URL not set yet
+    logger.info('Client database adapter initialised');
 
     const app = createServer();
     app.listen(PORT, () => {

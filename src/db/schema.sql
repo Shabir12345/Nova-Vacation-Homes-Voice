@@ -1,152 +1,126 @@
--- Nova Vacation Homes Database Schema
+-- Nova Vacation Homes — Our Tables
+-- (Client's property/reservation data lives in their own DB — see ClientDbService)
 
--- Customers table
+-- Customers: basic contact info captured during calls
 CREATE TABLE IF NOT EXISTS customers (
-  id SERIAL PRIMARY KEY,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  first_name VARCHAR(100) NOT NULL,
-  last_name VARCHAR(100) NOT NULL,
-  phone VARCHAR(20),
-  address TEXT,
-  city VARCHAR(100),
-  state VARCHAR(100),
-  country VARCHAR(100),
-  postal_code VARCHAR(20),
-  total_bookings INT DEFAULT 0,
-  preferred_region VARCHAR(100),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  id          SERIAL PRIMARY KEY,
+  email       VARCHAR(255) UNIQUE,
+  first_name  VARCHAR(100),
+  last_name   VARCHAR(100),
+  phone       VARCHAR(20),
+  language    VARCHAR(5) DEFAULT 'en',
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_customers_email ON customers(email);
+CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 
--- Properties table
-CREATE TABLE IF NOT EXISTS properties (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  region VARCHAR(100) NOT NULL,
-  address TEXT NOT NULL,
-  city VARCHAR(100),
-  state VARCHAR(100),
-  country VARCHAR(100),
-  postal_code VARCHAR(20),
-  latitude NUMERIC(10, 8),
-  longitude NUMERIC(11, 8),
-  bedrooms INT NOT NULL,
-  bathrooms INT NOT NULL,
-  max_guests INT NOT NULL,
-  base_price_per_night NUMERIC(10, 2) NOT NULL,
-  description TEXT,
-  house_rules JSONB,
-  amenities JSONB,
-  cancellation_policy JSONB,
-  images JSONB,
-  rating NUMERIC(3, 2),
-  total_reviews INT DEFAULT 0,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_properties_region ON properties(region);
-CREATE INDEX idx_properties_active ON properties(is_active);
-
--- Property availability calendar
-CREATE TABLE IF NOT EXISTS property_availability (
-  id SERIAL PRIMARY KEY,
-  property_id INT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
-  is_available BOOLEAN DEFAULT TRUE,
-  price_override NUMERIC(10, 2),
-  reason VARCHAR(255),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(property_id, date)
-);
-
-CREATE INDEX idx_availability_property_date ON property_availability(property_id, date);
-
--- Bookings table
-CREATE TABLE IF NOT EXISTS bookings (
-  id SERIAL PRIMARY KEY,
-  confirmation_code VARCHAR(50) UNIQUE NOT NULL,
-  property_id INT NOT NULL REFERENCES properties(id),
-  customer_id INT NOT NULL REFERENCES customers(id),
-  check_in_date DATE NOT NULL,
-  check_out_date DATE NOT NULL,
-  guest_count INT NOT NULL,
-  total_nights INT NOT NULL,
-  price_per_night NUMERIC(10, 2) NOT NULL,
-  subtotal NUMERIC(10, 2) NOT NULL,
-  fees NUMERIC(10, 2) DEFAULT 0,
-  total_price NUMERIC(10, 2) NOT NULL,
-  special_requests TEXT,
-  status VARCHAR(50) DEFAULT 'pending',
-  payment_status VARCHAR(50) DEFAULT 'pending',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  cancelled_at TIMESTAMP
-);
-
-CREATE INDEX idx_bookings_customer ON bookings(customer_id);
-CREATE INDEX idx_bookings_property ON bookings(property_id);
-CREATE INDEX idx_bookings_confirmation ON bookings(confirmation_code);
-CREATE INDEX idx_bookings_status ON bookings(status);
-
--- Call logs table (for tracking and analytics)
+-- Call logs: one row per call
 CREATE TABLE IF NOT EXISTS call_logs (
-  id SERIAL PRIMARY KEY,
-  call_id VARCHAR(255) UNIQUE NOT NULL,
-  phone_number VARCHAR(20),
-  incoming BOOLEAN DEFAULT TRUE,
-  intent VARCHAR(100),
-  customer_id INT REFERENCES customers(id),
-  booking_id INT REFERENCES bookings(id),
-  duration_seconds INT,
-  escalated BOOLEAN DEFAULT FALSE,
-  escalation_reason VARCHAR(255),
-  properties_shown JSONB,
-  transcript TEXT,
-  error_message TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  ended_at TIMESTAMP
+  id                 SERIAL PRIMARY KEY,
+  call_id            VARCHAR(255) UNIQUE NOT NULL,
+  phone_number       VARCHAR(20),
+  language           VARCHAR(5) DEFAULT 'en',
+  top_intent         VARCHAR(50),
+  sub_intent         VARCHAR(50),
+  active_agent       VARCHAR(20),         -- master | reservation | service
+  customer_id        INT REFERENCES customers(id),
+  intake_id          INT,                 -- FK to intake_messages.id (set after logging)
+  service_request_id INT,                 -- FK to service_requests.id (set after logging)
+  duration_seconds   INT,
+  escalated          BOOLEAN DEFAULT FALSE,
+  escalation_reason  VARCHAR(255),
+  transcript         TEXT,
+  error_message      TEXT,
+  created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  ended_at           TIMESTAMP
 );
 
-CREATE INDEX idx_call_logs_phone ON call_logs(phone_number);
-CREATE INDEX idx_call_logs_customer ON call_logs(customer_id);
-CREATE INDEX idx_call_logs_created ON call_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_call_logs_phone    ON call_logs(phone_number);
+CREATE INDEX IF NOT EXISTS idx_call_logs_intent   ON call_logs(top_intent);
+CREATE INDEX IF NOT EXISTS idx_call_logs_created  ON call_logs(created_at);
 
--- Agent interactions log (detailed conversation history)
+-- Agent interactions: every message + tool call in a call
 CREATE TABLE IF NOT EXISTS agent_interactions (
-  id SERIAL PRIMARY KEY,
-  call_id VARCHAR(255) NOT NULL REFERENCES call_logs(call_id),
-  role VARCHAR(50) NOT NULL,
-  message TEXT NOT NULL,
+  id          SERIAL PRIMARY KEY,
+  call_id     VARCHAR(255) NOT NULL REFERENCES call_logs(call_id),
+  role        VARCHAR(20) NOT NULL,         -- user | assistant | system
+  message     TEXT NOT NULL,
   tool_called VARCHAR(100),
   tool_params JSONB,
   tool_result JSONB,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_interactions_call ON agent_interactions(call_id);
+CREATE INDEX IF NOT EXISTS idx_interactions_call ON agent_interactions(call_id);
 
--- Reviews table (optional, for future use)
-CREATE TABLE IF NOT EXISTS reviews (
-  id SERIAL PRIMARY KEY,
-  booking_id INT NOT NULL REFERENCES bookings(id),
-  customer_id INT NOT NULL REFERENCES customers(id),
-  property_id INT NOT NULL REFERENCES properties(id),
-  rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
-  title VARCHAR(255),
-  comment TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- Intake messages: all inbound leads and business inquiries for staff follow-up
+CREATE TABLE IF NOT EXISTS intake_messages (
+  id             SERIAL PRIMARY KEY,
+  call_id        VARCHAR(255) REFERENCES call_logs(call_id),
+  intake_type    VARCHAR(50) NOT NULL,   -- business_inquiry | reservation_interest | extension_request
+  caller_name    VARCHAR(255),
+  caller_phone   VARCHAR(20),
+  caller_email   VARCHAR(255),
+  reason         TEXT,
+  -- Future guest reservation interest fields
+  destination    VARCHAR(255),
+  check_in_date  VARCHAR(50),
+  check_out_date VARCHAR(50),
+  guest_count    INT,
+  budget         VARCHAR(100),
+  special_notes  TEXT,
+  -- Business inquiry fields
+  inquiry_type   VARCHAR(50),
+  -- Status for staff workflow
+  status         VARCHAR(30) DEFAULT 'pending',  -- pending | in_progress | resolved
+  assigned_to    VARCHAR(100),
+  resolved_at    TIMESTAMP,
+  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_reviews_property ON reviews(property_id);
-CREATE INDEX idx_reviews_customer ON reviews(customer_id);
+CREATE INDEX IF NOT EXISTS idx_intake_status  ON intake_messages(status);
+CREATE INDEX IF NOT EXISTS idx_intake_type    ON intake_messages(intake_type);
+CREATE INDEX IF NOT EXISTS idx_intake_created ON intake_messages(created_at);
 
--- Enable UUID extension if needed
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Service requests: cleaning, maintenance, and additional services
+CREATE TABLE IF NOT EXISTS service_requests (
+  id               SERIAL PRIMARY KEY,
+  call_id          VARCHAR(255) REFERENCES call_logs(call_id),
+  reservation_id   VARCHAR(255) NOT NULL,  -- FK to client's reservation in their DB
+  request_type     VARCHAR(30) NOT NULL,   -- cleaning | maintenance | services
+  sub_type         VARCHAR(50),            -- plumbing | ac | pool_heater | rental_grill | etc.
+  description      TEXT,
+  urgency          VARCHAR(20),            -- low | medium | high | emergency
+  preferred_time   VARCHAR(100),
+  caller_phone     VARCHAR(20),
+  status           VARCHAR(30) DEFAULT 'pending',  -- pending | in_progress | resolved
+  assigned_to      VARCHAR(100),
+  resolved_at      TIMESTAMP,
+  created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
--- Enable JSON functions
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE INDEX IF NOT EXISTS idx_service_reservation ON service_requests(reservation_id);
+CREATE INDEX IF NOT EXISTS idx_service_status      ON service_requests(status);
+CREATE INDEX IF NOT EXISTS idx_service_urgency     ON service_requests(urgency);
+CREATE INDEX IF NOT EXISTS idx_service_created     ON service_requests(created_at);
+
+-- FAQ: knowledge base for general information callers
+CREATE TABLE IF NOT EXISTS faqs (
+  id          SERIAL PRIMARY KEY,
+  question    TEXT NOT NULL,
+  answer      TEXT NOT NULL,
+  category    VARCHAR(100),               -- booking | policies | amenities | check-in | etc.
+  language    VARCHAR(5) DEFAULT 'en',
+  keywords    TEXT[],                     -- for keyword-based search
+  active      BOOLEAN DEFAULT TRUE,
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_faq_category ON faqs(category);
+CREATE INDEX IF NOT EXISTS idx_faq_language ON faqs(language);
+CREATE INDEX IF NOT EXISTS idx_faq_active   ON faqs(active);
