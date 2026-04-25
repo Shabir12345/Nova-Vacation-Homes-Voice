@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { logger } from './utils/logger';
 import { initializeDatabase } from './db/connection';
+import { AgentOrchestrator } from './agent';
 
 dotenv.config();
 
@@ -15,10 +16,14 @@ async function bootstrap(): Promise<void> {
     await initializeDatabase();
     logger.info('Database initialized');
 
+    // Verify agent can start (Anthropic key check)
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY is required');
+    }
+    logger.info('Agent ready');
+
     // TODO: Initialize Redis connection
-    // TODO: Initialize Express server
-    // TODO: Register voice API webhooks
-    // TODO: Initialize agent orchestrator
+    // TODO: Initialize Express server with voice webhooks (Phase 6)
 
     logger.info(`Server running on port ${PORT}`);
     logger.info('Bootstrap complete');
@@ -27,5 +32,8 @@ async function bootstrap(): Promise<void> {
     process.exit(1);
   }
 }
+
+// Exported for use in voice webhook handlers
+export { AgentOrchestrator };
 
 bootstrap();
