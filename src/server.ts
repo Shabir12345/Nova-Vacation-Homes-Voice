@@ -2,6 +2,8 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import { AgentOrchestrator } from './agent';
+import { Metrics } from './middleware/metrics';
+import { AnalyticsService } from './services/analytics.service';
 import { logger } from './utils/logger';
 
 export const createServer = (): express.Application => {
@@ -20,6 +22,25 @@ export const createServer = (): express.Application => {
   // ── Health check ──────────────────────────────────────────────────────────
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', service: 'nova-voice-agent', ts: new Date().toISOString() });
+  });
+
+  // ── Metrics & Analytics ───────────────────────────────────────────────────
+  app.get('/metrics', (_req: Request, res: Response) => {
+    res.json(Metrics.snapshot());
+  });
+
+  app.get('/analytics', async (_req: Request, res: Response) => {
+    try {
+      const [summary, daily, escalations] = await Promise.all([
+        AnalyticsService.getSummary(),
+        AnalyticsService.getDailyStats(),
+        AnalyticsService.getTopEscalationReasons(),
+      ]);
+      res.json({ summary, daily, escalations });
+    } catch (error) {
+      logger.error(error, 'Failed to fetch analytics');
+      res.status(500).json({ error: 'Failed to fetch analytics' });
+    }
   });
 
   // ── Twilio: Incoming call ─────────────────────────────────────────────────
