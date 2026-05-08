@@ -50,26 +50,44 @@ export const closeDatabase = async (): Promise<void> => {
   }
 };
 
-// Utility to run migrations from schema.sql
+// Utility to run migrations from schema.sql and the migrations directory
 export const runMigrations = async (): Promise<void> => {
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+  });
+
   try {
     const fs = await import('fs');
     const path = await import('path');
 
+    await client.connect();
+
+    // 1. Run the base schema
     const schemaPath = path.join(__dirname, 'schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
-
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL,
-    });
-
-    await client.connect();
     await client.query(schema);
-    await client.end();
+    logger.info('Base schema applied');
 
-    logger.info('Migrations completed successfully');
+    // 2. Run incremental migrations from migrations/ folder
+    const migrationsDir = path.join(__dirname, 'migrations');
+    if (fs.existsSync(migrationsDir)) {
+      const files = fs.readdirSync(migrationsDir)
+        .filter(f => f.endsWith('.sql'))
+        .sort();
+
+      for (const file of files) {
+        const migrationPath = path.join(migrationsDir, file);
+        const sql = fs.readFileSync(migrationPath, 'utf-8');
+        await client.query(sql);
+        logger.info(`Migration applied: ${file}`);
+      }
+    }
+
+    logger.info('All migrations completed successfully');
   } catch (error) {
     logger.error(error, 'Migration failed');
     throw error;
+  } finally {
+    await client.end();
   }
 };
