@@ -382,7 +382,8 @@ export const executeTool = async (toolName: string, input: unknown): Promise<Too
       case 'verify_reservation': {
         const guestName = params['caller_name'] as string;
         const email = params['caller_email'] as string | undefined;
-        const confirmationCode = params['confirmation_code'] as string | undefined;
+        const rawCode = params['confirmation_code'] as string | undefined;
+        const confirmationCode = rawCode ? normalizeConfirmationCode(rawCode) : undefined;
 
         // Require two identifying fields — name alone can match the wrong guest.
         if (!confirmationCode && !email) {
@@ -487,4 +488,65 @@ export const executeTool = async (toolName: string, input: unknown): Promise<Too
     logger.error({ tool: toolName, error: message }, 'Tool execution failed');
     return { success: false, error: message };
   }
+};
+
+// ─── Confirmation code normalizer ─────────────────────────────────────────────
+// Callers often spell codes phonetically ("Hotel Mike Delta Delta...") or use
+// "X for X" / "X as in X" patterns. STT also occasionally outputs lowercase.
+// This converts whatever the LLM passes into a clean uppercase code string.
+
+const NATO: Record<string, string> = {
+  alpha: 'A', alfa: 'A',
+  bravo: 'B',
+  charlie: 'C', charley: 'C',
+  delta: 'D', data: 'D',
+  echo: 'E',
+  foxtrot: 'F', foxtrott: 'F',
+  golf: 'G',
+  hotel: 'H',
+  india: 'I', indigo: 'I',
+  juliet: 'J', juliett: 'J',
+  kilo: 'K',
+  lima: 'L',
+  mike: 'M',
+  november: 'N', nancy: 'N',
+  oscar: 'O',
+  papa: 'P',
+  quebec: 'Q',
+  romeo: 'R',
+  sierra: 'S',
+  tango: 'T',
+  uniform: 'U',
+  victor: 'V',
+  whiskey: 'W',
+  'x-ray': 'X', xray: 'X',
+  yankee: 'Y',
+  zulu: 'Z',
+  zero: '0', oh: '0',
+  one: '1',
+  two: '2',
+  three: '3',
+  four: '4',
+  five: '5',
+  six: '6',
+  seven: '7',
+  eight: '8',
+  nine: '9',
+  niner: '9',
+};
+
+export const normalizeConfirmationCode = (raw: string): string => {
+  // Remove "X for Y" / "X as in Y" → keep only X
+  let s = raw.replace(/\b(\w)\s+(?:for|as in)\s+\w+/gi, '$1');
+
+  // Replace NATO phonetic words with their single character
+  s = s.replace(/\b([a-z-]+)\b/gi, (word) => {
+    const mapped = NATO[word.toLowerCase()];
+    return mapped ?? word;
+  });
+
+  // Strip everything that isn't alphanumeric
+  s = s.replace(/[^A-Za-z0-9]/g, '');
+
+  return s.toUpperCase();
 };

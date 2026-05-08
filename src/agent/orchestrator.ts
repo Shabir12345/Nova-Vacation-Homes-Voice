@@ -111,7 +111,8 @@ export const AgentOrchestrator = {
         ctx.escalationReason ?? undefined,
         [],
         transcript,
-        errorMessage
+        errorMessage,
+        ctx.topIntent
       ).catch((err) => logger.warn(err, 'Failed to finalise call log')),
 
       ClientDbService.writeCallLog({

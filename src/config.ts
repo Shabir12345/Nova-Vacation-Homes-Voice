@@ -54,9 +54,15 @@ const configSchema = z.object({
   CR_VOICE_SIMILARITY: z.coerce.number().min(0.0).max(1.0).default(0.75),
 
   CR_TRANSCRIPTION_PROVIDER: z.enum(['Deepgram', 'Google']).default('Deepgram'),
-  CR_SPEECH_MODEL: z.string().default('nova-3-general'),
-  CR_INTERRUPT_SENSITIVITY: z.enum(['high', 'medium', 'low']).default('high'),
-  CR_EOT_THRESHOLD: z.coerce.number().min(0.5).max(0.9).default(0.8),
+  // nova-3-phonecall is trained on telephone audio (narrowband, noisy, accented speech).
+  // Significantly better than nova-3-general for B/D/P/T confusion over phone lines.
+  CR_SPEECH_MODEL: z.string().default('nova-3-phonecall'),
+  // medium avoids false interrupts when callers pause between spelled letters or speak
+  // with an accent — high fires too easily on ambient noise and short pauses.
+  CR_INTERRUPT_SENSITIVITY: z.enum(['high', 'medium', 'low']).default('medium'),
+  // 0.9 gives callers more time between spelled letters before the turn closes.
+  // 0.8 was cutting off confirmation codes mid-spell.
+  CR_EOT_THRESHOLD: z.coerce.number().min(0.5).max(1.0).default(0.9),
 
   // Business hours (24h, Eastern Time)
   BUSINESS_HOURS_OPEN: z.coerce.number().min(0).max(23).default(9),

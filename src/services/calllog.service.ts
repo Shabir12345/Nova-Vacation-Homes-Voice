@@ -71,14 +71,16 @@ export const CallLogService = {
     escalationReason?: string,
     propertiesShown?: number[],
     transcript?: string,
-    errorMessage?: string
+    errorMessage?: string,
+    topIntent?: string
   ): Promise<CallLog> => {
     try {
       const result = await getPool().query(
         `UPDATE call_logs
          SET duration_seconds = $1, escalated = $2, escalation_reason = $3,
-             properties_shown = $4, transcript = $5, error_message = $6, ended_at = CURRENT_TIMESTAMP
-         WHERE call_id = $7
+             properties_shown = $4, transcript = $5, error_message = $6,
+             top_intent = $7, ended_at = CURRENT_TIMESTAMP
+         WHERE call_id = $8
          RETURNING *`,
         [
           durationSeconds,
@@ -87,6 +89,7 @@ export const CallLogService = {
           propertiesShown ? JSON.stringify(propertiesShown) : null,
           transcript || null,
           errorMessage || null,
+          topIntent && topIntent !== 'unknown' ? topIntent : null,
           callId,
         ]
       );
