@@ -155,7 +155,7 @@ Incoming Call
 The system prompt needs:
 - Clear role definition (helpful property booking assistant)
 - Business constraints (only book available properties, pricing rules, cancellation policies)
-- Tone and personality (friendly, professional, helpful)
+- Tone and personality (Amy: friendly, professional, proactive, and efficient)
 - Escalation thresholds (when to transfer to human)
 - Format requirements (clear confirmations before booking)
 

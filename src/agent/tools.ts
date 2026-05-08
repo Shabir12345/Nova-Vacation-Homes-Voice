@@ -149,15 +149,15 @@ export const masterAgentTools: Anthropic.Tool[] = [
     description:
       'Verify an existing guest reservation. ' +
       'IMPORTANT: You MUST collect BOTH (1) the caller\'s full name AND (2) their confirmation code OR email address before calling this. ' +
-      'Never call with name alone — two guests can share the same name and you would pull the wrong booking. ' +
-      'Ask for the confirmation code first (they received it by email when they booked). ' +
-      'If they cannot find it, ask for the email address used when booking as a fallback. ' +
+      'Ask for the confirmation code first — most codes are 8 or 10 characters long. ' +
+      'If they cannot find the code, ask for the email address used when booking as a fallback. ' +
+      'Never call with name alone. ' +
       'Only call this tool once you have name plus at least one of those two.',
     input_schema: {
       type: 'object',
       properties: {
         caller_name: { type: 'string', description: 'Guest\'s full name' },
-        confirmation_code: { type: 'string', description: 'Booking confirmation code — ask for this first' },
+        confirmation_code: { type: 'string', description: 'Booking confirmation code — usually 8 or 10 characters' },
         caller_email: { type: 'string', description: 'Email address used when booking — fallback if no confirmation code' },
       },
       required: ['caller_name'],
