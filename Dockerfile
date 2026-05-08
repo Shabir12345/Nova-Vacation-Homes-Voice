@@ -28,6 +28,7 @@ WORKDIR /app
 # Copy only what's needed to run
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist         ./dist
+COPY --from=builder /app/src/db/*.sql ./dist/db/
 COPY --from=builder /app/package.json ./
 
 # Don't expose .env — mount it at runtime or use environment variables
