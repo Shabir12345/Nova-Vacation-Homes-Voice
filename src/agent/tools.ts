@@ -411,7 +411,15 @@ export const executeTool = async (toolName: string, input: unknown): Promise<Too
             },
           };
         }
-        return { success: true, data: { found: true, reservation } };
+        return {
+          success: true,
+          data: {
+            found: true,
+            reservation,
+            match_type: reservation.matchType,
+            match_notes: reservation.matchNotes,
+          }
+        };
       }
 
       case 'classify_existing_guest_intent':

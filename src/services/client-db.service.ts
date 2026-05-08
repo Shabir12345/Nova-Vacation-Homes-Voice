@@ -143,7 +143,7 @@ export const ClientDbService = {
     guestName: string;
     email?: string;
     confirmationCode?: string;  // OTA confirmation code e.g. "HMZKYB34CX"
-  }): Promise<ReservationRecord | null> => {
+  }): Promise<(ReservationRecord & { matchType: 'perfect' | 'fuzzy' | 'none'; matchNotes?: string }) | null> => {
     const client = await pool().connect();
     try {
       // 10-second cap — FDW calls to Guesty can be slow on cold connections.
@@ -231,8 +231,10 @@ export const ClientDbService = {
         LEFT JOIN pms.listing_marketing_info lm ON lm.listing_id = l.id AND lm.language_code = 'en'
         LEFT JOIN pms.guest   g                ON g.id = r.guest_id
         WHERE r.reservation_status_code NOT IN ('cancelled', 'canceled', 'declined', 'expired')
-          AND (${namePredicates.join(' OR ')})
-          AND (${idPredicates.join(' OR ')})
+          AND (
+            (${namePredicates.join(' OR ')})
+            OR (${idPredicates.join(' OR ')})
+          )
         ORDER BY
           -- Prefer current stays, then upcoming, then most-recent past
           CASE
@@ -245,13 +247,77 @@ export const ClientDbService = {
       `;
 
       const result = await client.query(sql, values);
-      logger.debug(
-        { found: result.rows.length > 0, hasCode: !!params.confirmationCode, hasEmail: !!params.email },
-        'findReservation complete'
-      );
-      if (result.rows.length === 0) return null;
+      const candidates = result.rows;
+      if (candidates.length === 0) return null;
 
-      const row = result.rows[0];
+      // Score candidates to find the best match
+      const scored = candidates.map((row: any) => {
+        const rowName = String(row.guest_full_name || '').toLowerCase();
+        const rowCode = String(row.ota_confirmation_code || '').toUpperCase();
+        const rowEmail = String(row.guest_email || '').toLowerCase();
+
+        const inputName = params.guestName.toLowerCase();
+        const inputCode = (params.confirmationCode || '').toUpperCase();
+        const inputEmail = (params.email || '').toLowerCase();
+
+        const nameSim = getSimilarity(inputName, rowName);
+        const codeSim = inputCode ? getSimilarity(inputCode, rowCode) : 0;
+        const emailSim = inputEmail ? getSimilarity(inputEmail, rowEmail) : 0;
+
+        // Scoring logic:
+        // 1. Perfect match (1.0)
+        // 2. Perfect ID, fuzzy name (0.9)
+        // 3. Perfect name, fuzzy ID (0.8)
+        // 4. Fuzzy both (0.7)
+        let score = 0;
+        let matchType: 'perfect' | 'fuzzy' | 'none' = 'none';
+        let matchNotes = '';
+
+        const idSim = Math.max(codeSim, emailSim);
+
+        if (nameSim > 0.98 && idSim > 0.98) {
+          score = 1.0;
+          matchType = 'perfect';
+        } else if (idSim > 0.98 && nameSim > 0.4) {
+          // Code/Email is perfect, name is at least somewhat similar
+          score = 0.9;
+          matchType = 'fuzzy';
+          matchNotes = `The confirmation code matches perfectly, but the name is slightly different (you heard "${params.guestName}", the reservation is for "${row.guest_full_name}").`;
+        } else if (nameSim > 0.98 && idSim > 0.7) {
+          // Name is perfect, code is close (1-3 chars off)
+          score = 0.8;
+          matchType = 'fuzzy';
+          matchNotes = `The name matches perfectly, but the confirmation code is slightly different (you heard "${inputCode}", the reservation code is "${rowCode}").`;
+        } else if (nameSim > 0.7 && idSim > 0.7) {
+          // Both are very close
+          score = 0.7;
+          matchType = 'fuzzy';
+          matchNotes = `Both the name and code are very close to what you heard (Name: "${row.guest_full_name}", Code: "${rowCode}").`;
+        }
+
+        return { row, score, matchType, matchNotes };
+      });
+
+      // Filter out 'none' matches and sort by best score
+      const best = scored
+        .filter((s: any) => s.matchType !== 'none')
+        .sort((a: any, b: any) => b.score - a.score)[0];
+
+      if (!best) {
+        logger.debug({ candidates: candidates.length }, 'No candidates met fuzzy match thresholds');
+        return null;
+      }
+
+      const row = best.row;
+      logger.info(
+        {
+          matchType: best.matchType,
+          score: best.score,
+          providedName: params.guestName,
+          foundName: row.guest_full_name,
+        },
+        'findReservation fuzzy match success'
+      );
 
       // Build the comprehensive snapshot — this is what every downstream
       // Reservation Agent tool will read from for the rest of the call.
@@ -313,6 +379,8 @@ export const ClientDbService = {
         wifiPassword: snapshot.wifiPassword,
         otaConfirmationCode: snapshot.otaConfirmationCode,
         status: snapshot.status,
+        matchType: best.matchType,
+        matchNotes: best.matchNotes,
       };
     } catch (err) {
       logger.error({ err }, 'findReservation failed');
@@ -662,3 +730,32 @@ const formatDate = (d: Date | string): string =>
   new Date(d).toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
+
+// ─── Fuzzy Match Helpers ─────────────────────────────────────────────────────
+
+const getSimilarity = (a: string, b: string): number => {
+  if (!a || !b) return 0;
+  const s1 = a.toLowerCase().trim();
+  const s2 = b.toLowerCase().trim();
+  if (s1 === s2) return 1.0;
+  const longer = s1.length > s2.length ? s1 : s2;
+  const shorter = s1.length > s2.length ? s2 : s1;
+  if (longer.length === 0) return 1.0;
+  return (longer.length - levenshtein(longer, shorter)) / longer.length;
+};
+
+const levenshtein = (a: string, b: string): number => {
+  const tmp: number[][] = [];
+  for (let i = 0; i <= a.length; i++) tmp[i] = [i];
+  for (let j = 0; j <= b.length; j++) tmp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      tmp[i][j] = Math.min(
+        tmp[i - 1][j] + 1,
+        tmp[i][j - 1] + 1,
+        tmp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+  }
+  return tmp[a.length][b.length];
+};
