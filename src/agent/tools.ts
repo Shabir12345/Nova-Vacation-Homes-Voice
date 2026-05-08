@@ -147,14 +147,18 @@ export const masterAgentTools: Anthropic.Tool[] = [
   {
     name: 'verify_reservation',
     description:
-      'Verify an existing guest\'s reservation by looking it up in the client database. ' +
-      'Use as the first step for any existing guest call.',
+      'Verify an existing guest reservation. ' +
+      'IMPORTANT: You MUST collect BOTH (1) the caller\'s full name AND (2) their confirmation code OR email address before calling this. ' +
+      'Never call with name alone — two guests can share the same name and you would pull the wrong booking. ' +
+      'Ask for the confirmation code first (they received it by email when they booked). ' +
+      'If they cannot find it, ask for the email address used when booking as a fallback. ' +
+      'Only call this tool once you have name plus at least one of those two.',
     input_schema: {
       type: 'object',
       properties: {
         caller_name: { type: 'string', description: 'Guest\'s full name' },
-        caller_email: { type: 'string', description: 'Guest\'s email address (optional but preferred)' },
-        confirmation_code: { type: 'string', description: 'Reservation/booking confirmation code (optional)' },
+        confirmation_code: { type: 'string', description: 'Booking confirmation code — ask for this first' },
+        caller_email: { type: 'string', description: 'Email address used when booking — fallback if no confirmation code' },
       },
       required: ['caller_name'],
     },
@@ -376,13 +380,35 @@ export const executeTool = async (toolName: string, input: unknown): Promise<Too
       }
 
       case 'verify_reservation': {
+        const guestName = params['caller_name'] as string;
+        const email = params['caller_email'] as string | undefined;
+        const confirmationCode = params['confirmation_code'] as string | undefined;
+
+        // Require two identifying fields — name alone can match the wrong guest.
+        if (!confirmationCode && !email) {
+          return {
+            success: true,
+            data: {
+              found: false,
+              needsMoreInfo: true,
+              message: 'A second identifier is required. Ask the caller for their confirmation code (from their booking email) or the email address they used when booking.',
+            },
+          };
+        }
+
         const reservation = await ClientDbService.findReservation({
-          guestName: params['caller_name'] as string,
-          email: params['caller_email'] as string | undefined,
-          confirmationCode: params['confirmation_code'] as string | undefined,
+          guestName,
+          email,
+          confirmationCode,
         });
         if (!reservation) {
-          return { success: true, data: { found: false, message: 'No reservation found with that information.' } };
+          return {
+            success: true,
+            data: {
+              found: false,
+              message: 'No reservation found with that name and confirmation code. Ask the caller to double-check the code, or try their email address instead.',
+            },
+          };
         }
         return { success: true, data: { found: true, reservation } };
       }

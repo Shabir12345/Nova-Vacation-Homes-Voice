@@ -387,28 +387,32 @@ export const ClientDbService = {
     }
   },
 
-  // Write a call log entry to the client's pms.call_log table
+  // Write a call log entry to the client's pms.call_logs table.
+  // Called at the end of every call regardless of call type —
+  // reservation_id is NULL for non-guest calls (business inquiries, general info, etc.).
+  // Note: 'call_catergory' column name is a typo in the client's PMS schema; do not rename.
   writeCallLog: async (params: {
-    reservationId: string;
-    guestName: string;
-    phone: string | null;
+    callerName?: string | null;
+    callerPhone?: string | null;
     callSummary: string;
     transcript: string;
     callCategory: string;
-    checkIn?: Date;
-    checkOut?: Date;
+    reservationId?: string | null;
+    checkIn?: Date | null;
+    checkOut?: Date | null;
+    escalated?: boolean;
   }): Promise<void> => {
     try {
       await pool().query(`
-        INSERT INTO pms.call_log
+        INSERT INTO pms.call_logs
           (id, reservation_id, guest_name, phone, call_summary, transcript,
            call_catergory, check_in, check_out, created_at, updated_at)
-           -- note: 'call_catergory' is a typo in the client's PMS schema; do not rename
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-      `, [generateId(),
-        params.reservationId,
-        params.guestName,
-        params.phone,
+      `, [
+        generateId(),
+        params.reservationId ?? null,
+        params.callerName ?? null,
+        params.callerPhone ?? null,
         params.callSummary,
         params.transcript,
         params.callCategory,
@@ -416,8 +420,8 @@ export const ClientDbService = {
         params.checkOut ?? null,
       ]);
     } catch (err) {
-      logger.error(err, 'writeCallLog failed');
-      // Non-fatal — don't crash the call
+      logger.error({ err }, 'writeCallLog failed');
+      // Non-fatal — don't let a logging failure crash the call cleanup
     }
   },
 };

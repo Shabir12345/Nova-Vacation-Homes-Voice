@@ -5,6 +5,7 @@ import { ConversationContext, StateMachine } from './state-machine';
 import { processTurn, processTurnStream, StreamEvent, TurnResult } from './decision-engine';
 import { SessionStore } from '../utils/session-store';
 import { CallLogService } from '../services/calllog.service';
+import { ClientDbService } from '../services/client-db.service';
 import { getGreeting } from './prompts';
 import { logger } from '../utils/logger';
 
@@ -90,15 +91,36 @@ export const AgentOrchestrator = {
       .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
       .join('\n\n');
 
+    // Update our own call_logs table
     await CallLogService.endCall(
       callId,
       duration,
       ctx.state === 'ESCALATED',
       ctx.escalationReason ?? undefined,
-      [], // propertiesShown — not applicable in this architecture
+      [],
       transcript,
       errorMessage
     ).catch((err) => logger.warn(err, 'Failed to finalise call log'));
+
+    // Write to client's pms.call_logs table — one row per call, every call type
+    const callSummaryParts: string[] = [];
+    if (ctx.topIntent !== 'unknown') callSummaryParts.push(`Type: ${ctx.topIntent.replace(/_/g, ' ')}`);
+    if (ctx.callerName) callSummaryParts.push(`Caller: ${ctx.callerName}`);
+    if (ctx.reservation.confirmed && ctx.reservation.reservationId) callSummaryParts.push(`Reservation: ${ctx.reservation.reservationId}`);
+    if (ctx.existingGuestIntent !== 'unknown') callSummaryParts.push(`Request: ${ctx.existingGuestIntent.replace(/_/g, ' ')}`);
+    if (ctx.state === 'ESCALATED') callSummaryParts.push(`Escalated: ${ctx.escalationReason ?? 'yes'}`);
+    callSummaryParts.push(`Duration: ${duration}s`);
+    const callSummary = callSummaryParts.join(' | ') || 'Call completed';
+
+    await ClientDbService.writeCallLog({
+      callerName: ctx.callerName,
+      callerPhone: ctx.callerPhone,
+      callSummary,
+      transcript,
+      callCategory: ctx.topIntent !== 'unknown' ? ctx.topIntent : 'unknown',
+      reservationId: ctx.reservation.reservationId ?? null,
+      escalated: ctx.state === 'ESCALATED',
+    }).catch((err) => logger.warn({ err }, 'Failed to write client call log'));
 
     await SessionStore.delete(callId);
     logger.info({ callId, duration, finalState: ctx.state }, 'Session ended');
