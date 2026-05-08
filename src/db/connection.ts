@@ -15,7 +15,9 @@ export const initializeDatabase = async (): Promise<void> => {
 
     pool = new Pool({
       connectionString: databaseUrl,
-      max: 20,
+      // Voice traffic is low-concurrency (typically <5 simultaneous calls);
+      // 10 leaves headroom without holding more PG connections than we need.
+      max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
     });

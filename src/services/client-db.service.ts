@@ -8,6 +8,11 @@
 import { Pool } from 'pg';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { Cache } from '../utils/session-store';
+
+// Short TTL — Guesty data rarely changes mid-call, but we never want to serve
+// data more than a couple of minutes stale to a guest on the phone.
+const RESERVATION_CACHE_TTL_S = 90;
 
 let clientPool: Pool;
 
@@ -186,6 +191,10 @@ export const ClientDbService = {
 
   // Full reservation + listing details for Reservation Agent questions
   getReservationDetails: async (reservationId: string): Promise<Record<string, unknown> | null> => {
+    const cacheKey = `reservation_details:${reservationId}`;
+    const cached = await Cache.get<Record<string, unknown> | null>(cacheKey).catch(() => null);
+    if (cached !== null) return cached;
+
     try {
       const result = await pool().query(`
         SELECT
@@ -206,7 +215,12 @@ export const ClientDbService = {
         LIMIT 1
       `, [reservationId]);
 
-      return result.rows[0] ?? null;
+      const row = result.rows[0] ?? null;
+      // Cache misses too — repeated lookups for an unknown id should not pound the FDW
+      Cache.set(cacheKey, row, RESERVATION_CACHE_TTL_S).catch((err) =>
+        logger.warn({ err }, 'Failed to cache reservation details')
+      );
+      return row;
     } catch (err) {
       logger.error(err, 'getReservationDetails failed');
       throw err;
@@ -215,6 +229,10 @@ export const ClientDbService = {
 
   // Check-in / check-out information — most common existing-guest question
   getCheckinInfo: async (reservationId: string): Promise<Record<string, unknown>> => {
+    const cacheKey = `checkin_info:${reservationId}`;
+    const cached = await Cache.get<Record<string, unknown>>(cacheKey).catch(() => null);
+    if (cached) return cached;
+
     try {
       const result = await pool().query(`
         SELECT
@@ -239,7 +257,7 @@ export const ClientDbService = {
       if (result.rows.length === 0) return {};
       const row = result.rows[0];
 
-      return {
+      const info = {
         checkInDate: formatDate(row.check_in),
         checkOutDate: formatDate(row.check_out),
         checkInTime: row.default_check_in_time ? formatTime(row.default_check_in_time) : '4:00 PM',
@@ -252,6 +270,11 @@ export const ClientDbService = {
         wifiPassword: row.wifi_password,
         otaConfirmationCode: row.ota_confirmation_code,
       };
+
+      Cache.set(cacheKey, info, RESERVATION_CACHE_TTL_S).catch((err) =>
+        logger.warn({ err }, 'Failed to cache checkin info')
+      );
+      return info;
     } catch (err) {
       logger.error(err, 'getCheckinInfo failed');
       throw err;
@@ -260,6 +283,10 @@ export const ClientDbService = {
 
   // Listing details — amenities, description, house rules, etc.
   getListingInfo: async (reservationId: string): Promise<Record<string, unknown>> => {
+    const cacheKey = `listing_info:${reservationId}`;
+    const cached = await Cache.get<Record<string, unknown>>(cacheKey).catch(() => null);
+    if (cached) return cached;
+
     try {
       const result = await pool().query(`
         SELECT
@@ -276,7 +303,11 @@ export const ClientDbService = {
         WHERE r.id = $1
       `, [reservationId]);
 
-      return result.rows[0] ?? {};
+      const row = result.rows[0] ?? {};
+      Cache.set(cacheKey, row, RESERVATION_CACHE_TTL_S).catch((err) =>
+        logger.warn({ err }, 'Failed to cache listing info')
+      );
+      return row;
     } catch (err) {
       logger.error(err, 'getListingInfo failed');
       throw err;

@@ -285,12 +285,27 @@ export async function* processTurnStream(
     }
 
     if (finalMessage.stop_reason === 'tool_use' && toolUseBlocks.length > 0) {
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-
+      // Yield a tool_start for each pending tool BEFORE kicking them off so
+      // the relay's filler timer is armed during the parallel wait, not after
+      // the slowest tool already returned.
       for (const toolUse of toolUseBlocks) {
         yield { type: 'tool_start', toolName: toolUse.name };
+      }
 
-        const result = await executeTool(toolUse.name, toolUse.input);
+      // Run all tool calls concurrently. In practice Claude usually emits one
+      // tool per turn (because the bridge-phrase rule serialises them), but
+      // when it does emit multiple, this saves the sum of their latencies.
+      const results = await Promise.all(
+        toolUseBlocks.map((tu) => executeTool(tu.name, tu.input))
+      );
+
+      // Apply logging, side-effects and tool_result blocks in deterministic
+      // order — Claude expects tool_results to align with the original
+      // tool_use ids, and applyToolSideEffects mutates ctx so order matters.
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (let i = 0; i < toolUseBlocks.length; i++) {
+        const toolUse = toolUseBlocks[i]!;
+        const result = results[i]!;
 
         CallLogService.logInteraction({
           callId: ctx.callId,
@@ -390,10 +405,16 @@ export const processTurn = async (
     }
 
     if (response.stop_reason === 'tool_use' && toolUseBlocks.length > 0) {
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      // Run tool calls concurrently; apply side-effects + assemble results in
+      // original order so tool_use_ids line up and ctx mutations stay deterministic.
+      const results = await Promise.all(
+        toolUseBlocks.map((tu) => executeTool(tu.name, tu.input))
+      );
 
-      for (const toolUse of toolUseBlocks) {
-        const result = await executeTool(toolUse.name, toolUse.input);
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (let i = 0; i < toolUseBlocks.length; i++) {
+        const toolUse = toolUseBlocks[i]!;
+        const result = results[i]!;
 
         CallLogService.logInteraction({
           callId: ctx.callId,

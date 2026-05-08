@@ -91,18 +91,7 @@ export const AgentOrchestrator = {
       .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
       .join('\n\n');
 
-    // Update our own call_logs table
-    await CallLogService.endCall(
-      callId,
-      duration,
-      ctx.state === 'ESCALATED',
-      ctx.escalationReason ?? undefined,
-      [],
-      transcript,
-      errorMessage
-    ).catch((err) => logger.warn(err, 'Failed to finalise call log'));
-
-    // Write to client's pms.call_logs table — one row per call, every call type
+    // Build the client call_log summary up front so both writes can run in parallel
     const callSummaryParts: string[] = [];
     if (ctx.topIntent !== 'unknown') callSummaryParts.push(`Type: ${ctx.topIntent.replace(/_/g, ' ')}`);
     if (ctx.callerName) callSummaryParts.push(`Caller: ${ctx.callerName}`);
@@ -112,15 +101,29 @@ export const AgentOrchestrator = {
     callSummaryParts.push(`Duration: ${duration}s`);
     const callSummary = callSummaryParts.join(' | ') || 'Call completed';
 
-    await ClientDbService.writeCallLog({
-      callerName: ctx.callerName,
-      callerPhone: ctx.callerPhone,
-      callSummary,
-      transcript,
-      callCategory: ctx.topIntent !== 'unknown' ? ctx.topIntent : 'unknown',
-      reservationId: ctx.reservation.reservationId ?? null,
-      escalated: ctx.state === 'ESCALATED',
-    }).catch((err) => logger.warn({ err }, 'Failed to write client call log'));
+    // Run both log writes in parallel — independent destinations, both have .catch
+    // handlers so a failure in one won't reject the Promise.all.
+    await Promise.all([
+      CallLogService.endCall(
+        callId,
+        duration,
+        ctx.state === 'ESCALATED',
+        ctx.escalationReason ?? undefined,
+        [],
+        transcript,
+        errorMessage
+      ).catch((err) => logger.warn(err, 'Failed to finalise call log')),
+
+      ClientDbService.writeCallLog({
+        callerName: ctx.callerName,
+        callerPhone: ctx.callerPhone,
+        callSummary,
+        transcript,
+        callCategory: ctx.topIntent !== 'unknown' ? ctx.topIntent : 'unknown',
+        reservationId: ctx.reservation.reservationId ?? null,
+        escalated: ctx.state === 'ESCALATED',
+      }).catch((err) => logger.warn({ err }, 'Failed to write client call log')),
+    ]);
 
     await SessionStore.delete(callId);
     logger.info({ callId, duration, finalState: ctx.state }, 'Session ended');

@@ -9,9 +9,12 @@ import { logger } from './logger';
 
 const SESSION_TTL_SECONDS = 60 * 60 * 2; // 2 hours
 const KEY_PREFIX = 'nova:session:';
+const CACHE_PREFIX = 'nova:cache:';
 
 let redisClient: RedisClientType | null = null;
 const memoryFallback = new Map<string, string>();
+// Cache fallback stores value + expiry epoch ms so the in-memory mode honours TTL
+const cacheMemoryFallback = new Map<string, { value: string; expiresAt: number }>();
 let usingFallback = false;
 
 export const initializeSessionStore = async (): Promise<void> => {
@@ -117,5 +120,41 @@ export const SessionStore = {
     }
     const keys = await redisClient!.keys(`${KEY_PREFIX}*`);
     return keys.map((k) => k.replace(KEY_PREFIX, ''));
+  },
+};
+
+// ─── Generic short-TTL cache ──────────────────────────────────────────────────
+// Used by read-heavy tool lookups (listing info, check-in info, etc.) where the
+// same reservation_id gets queried multiple times within a single call. Keep
+// TTLs short (≤120s) so we never serve stale data to a guest.
+
+export const Cache = {
+  get: async <T>(key: string): Promise<T | null> => {
+    const k = CACHE_PREFIX + key;
+
+    if (usingFallback) {
+      const entry = cacheMemoryFallback.get(k);
+      if (!entry) return null;
+      if (Date.now() > entry.expiresAt) {
+        cacheMemoryFallback.delete(k);
+        return null;
+      }
+      return JSON.parse(entry.value) as T;
+    }
+
+    const raw = await redisClient!.get(k);
+    return raw ? (JSON.parse(raw) as T) : null;
+  },
+
+  set: async (key: string, value: unknown, ttlSeconds: number): Promise<void> => {
+    const k = CACHE_PREFIX + key;
+    const raw = JSON.stringify(value);
+
+    if (usingFallback) {
+      cacheMemoryFallback.set(k, { value: raw, expiresAt: Date.now() + ttlSeconds * 1000 });
+      return;
+    }
+
+    await redisClient!.setEx(k, ttlSeconds, raw);
   },
 };

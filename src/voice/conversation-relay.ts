@@ -76,13 +76,20 @@ interface CallState {
   // Filler timer — fires if a tool call takes >FILLER_DELAY_MS so we can speak
   // a short "let me check that" instead of going silent.
   fillerTimer: NodeJS.Timeout | null;
+  // Last filler index used per language — avoids picking the same phrase twice
+  // in a row, which is one of the strongest "this is a robot" tells.
+  lastFillerIdx: number;
 }
 
-const FILLER_DELAY_MS = 700;
+// Threshold for breaking dead air. Research on natural-sounding voice agents
+// flags >700ms of silence as the line where realism collapses, so we kick a
+// bridge phrase in just under that.
+const FILLER_DELAY_MS = 600;
 
 // Filler utterances spoken if a tool call runs slow. Variety + em-dashes/ellipses
 // help these read naturally through ElevenLabs (no SSML available, so punctuation
-// is the only prosody control).
+// is the only prosody control). Mix lengths so consecutive turns don't sound
+// patterned.
 const FILLER_PHRASES: Record<Language, string[]> = {
   en: [
     'One sec — let me pull that up.',
@@ -91,6 +98,10 @@ const FILLER_PHRASES: Record<Language, string[]> = {
     'Just a moment — almost there.',
     'Let me see…',
     'Right, give me a second.',
+    'Hmm, let me check that.',
+    'Hang on — pulling it up.',
+    'Yeah, one moment…',
+    'Gotcha — looking that up.',
   ],
   es: [
     'Un momento — déjeme revisar.',
@@ -98,6 +109,9 @@ const FILLER_PHRASES: Record<Language, string[]> = {
     'Un segundo, por favor.',
     'Mmm, lo estoy buscando ahora…',
     'Claro, deme un momentito.',
+    'A ver… un momentito.',
+    'Sí, un segundo — ya casi.',
+    'Déjeme revisar eso rápido.',
   ],
   pt: [
     'Um momento — vou verificar.',
@@ -105,6 +119,9 @@ const FILLER_PHRASES: Record<Language, string[]> = {
     'Tô checando isso pra você agora.',
     'Mmm, deixe-me ver…',
     'Claro, só um segundinho.',
+    'Aguenta um pouquinho — quase lá.',
+    'Tá, deixa eu olhar isso.',
+    'Sim — um segundo, por favor.',
   ],
 };
 
@@ -126,9 +143,14 @@ const sendText = (ws: WebSocket, token: string, last: boolean, lang: string): vo
 const langToBcp47 = (lang: Language): string =>
   lang === 'es' ? 'es-US' : lang === 'pt' ? 'pt-BR' : 'en-US';
 
-const pickFiller = (lang: Language): string => {
+// Pick a filler that's not the one we just used. Repeating "Mm-hm, looking
+// now…" on back-to-back tool calls reads as scripted, even with a warm voice.
+const pickFiller = (lang: Language, lastIdx: number): { text: string; idx: number } => {
   const phrases = FILLER_PHRASES[lang];
-  return phrases[Math.floor(Math.random() * phrases.length)] ?? phrases[0];
+  if (phrases.length <= 1) return { text: phrases[0]!, idx: 0 };
+  let idx = Math.floor(Math.random() * phrases.length);
+  if (idx === lastIdx) idx = (idx + 1) % phrases.length;
+  return { text: phrases[idx]!, idx };
 };
 
 // ─── Per-message handlers ────────────────────────────────────────────────────
@@ -185,7 +207,8 @@ const handlePrompt = async (
           // Filler timer — if the tool takes >FILLER_DELAY_MS, speak a
           // bridging phrase so the line never goes completely silent.
           state.fillerTimer = setTimeout(() => {
-            const filler = pickFiller(state.language);
+            const { text: filler, idx } = pickFiller(state.language, state.lastFillerIdx);
+            state.lastFillerIdx = idx;
             logger.debug({ callSid: state.callSid, filler }, 'Speaking filler during tool call');
             send(ws, {
               type: 'text', token: filler, last: true, lang,
@@ -257,6 +280,7 @@ const handleConnection = (ws: WebSocket, _req: IncomingMessage): void => {
             language: 'en',
             currentTurn: null,
             fillerTimer: null,
+            lastFillerIdx: -1,
           };
           logger.info({ callSid: msg.callSid, from: msg.from }, 'ConversationRelay session opened');
           // Session is created by the /voice/incoming HTTP webhook, not here —

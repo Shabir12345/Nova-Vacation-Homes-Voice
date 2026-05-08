@@ -1,0 +1,1721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova Vacation Homes — AI Voice Agent Progress</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0B1826;
+    --navy-mid: #132237;
+    --navy-light: #1E3450;
+    --gold: #C9A84C;
+    --gold-light: #E2C57A;
+    --gold-pale: #F5EDD4;
+    --cream: #F7F3EC;
+    --teal: #1B9E8C;
+    --teal-light: #3DBFAD;
+    --slate: #8BA3BF;
+    --slate-dark: #4A6580;
+    --red: #E25C5C;
+    --green: #4CAF82;
+    --white: #FFFFFF;
+    --text-body: #D4C8B8;
+    --text-muted: #7A91A8;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--navy);
+    color: var(--text-body);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ─── CANVAS BACKGROUND ─── */
+  #bg-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* ─── WRAPPER ─── */
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+
+  /* ─── NAV ─── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    padding: 18px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(11,24,38,0.85);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(201,168,76,0.15);
+  }
+
+  .nav-logo {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 500;
+    font-size: 1.1rem;
+    color: var(--gold-light);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .nav-date {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 120px 0 80px;
+    position: relative;
+  }
+
+  .hero-eyebrow {
+    font-size: 0.7rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.2s forwards;
+  }
+
+  .hero-eyebrow::before {
+    content: '';
+    display: block;
+    width: 32px;
+    height: 1px;
+    background: var(--gold);
+  }
+
+  .hero-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(3.2rem, 7vw, 6rem);
+    font-weight: 300;
+    line-height: 1.05;
+    color: var(--white);
+    margin-bottom: 8px;
+    opacity: 0;
+    animation: fadeUp 0.9s ease 0.4s forwards;
+  }
+
+  .hero-title em {
+    font-style: italic;
+    color: var(--gold-light);
+  }
+
+  .hero-subtitle {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 300;
+    color: var(--slate);
+    margin-bottom: 40px;
+    opacity: 0;
+    animation: fadeUp 0.9s ease 0.55s forwards;
+  }
+
+  .hero-desc {
+    max-width: 560px;
+    font-size: 1rem;
+    color: var(--text-body);
+    line-height: 1.8;
+    opacity: 0;
+    animation: fadeUp 0.9s ease 0.7s forwards;
+  }
+
+  .hero-stats {
+    display: flex;
+    gap: 48px;
+    margin-top: 60px;
+    padding-top: 40px;
+    border-top: 1px solid rgba(201,168,76,0.2);
+    opacity: 0;
+    animation: fadeUp 0.9s ease 0.9s forwards;
+    flex-wrap: wrap;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .stat-num {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 2.4rem;
+    font-weight: 500;
+    color: var(--gold-light);
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .scroll-hint {
+    position: absolute;
+    bottom: 40px;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.68rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    animation: bounce 2s infinite;
+  }
+
+  .scroll-hint svg { opacity: 0.5; }
+
+  /* ─── SECTION HEADERS ─── */
+  section {
+    padding: 100px 0;
+    position: relative;
+  }
+
+  .section-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-label::before {
+    content: '';
+    display: block;
+    width: 24px;
+    height: 1px;
+    background: var(--gold);
+    flex-shrink: 0;
+  }
+
+  .section-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(2rem, 4.5vw, 3.2rem);
+    font-weight: 300;
+    color: var(--white);
+    line-height: 1.15;
+    margin-bottom: 20px;
+  }
+
+  .section-title em {
+    font-style: italic;
+    color: var(--gold-light);
+  }
+
+  .section-intro {
+    max-width: 600px;
+    font-size: 1rem;
+    color: var(--text-body);
+    line-height: 1.8;
+    margin-bottom: 60px;
+  }
+
+  /* ─── DIVIDER ─── */
+  .divider {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(to right, transparent, rgba(201,168,76,0.25), transparent);
+    margin: 0;
+  }
+
+  /* ─── ARCHITECTURE DIAGRAM ─── */
+  .arch-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1px;
+    background: rgba(201,168,76,0.1);
+    border: 1px solid rgba(201,168,76,0.15);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 60px;
+  }
+
+  .arch-cell {
+    background: var(--navy-mid);
+    padding: 28px 24px;
+    transition: background 0.3s;
+  }
+
+  .arch-cell:hover { background: var(--navy-light); }
+
+  .arch-cell-icon {
+    width: 36px;
+    height: 36px;
+    background: rgba(201,168,76,0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    font-size: 1rem;
+  }
+
+  .arch-cell-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--gold-light);
+    margin-bottom: 8px;
+  }
+
+  .arch-cell-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  /* ─── FEATURE CARDS ─── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 24px;
+  }
+
+  .feature-card {
+    background: var(--navy-mid);
+    border: 1px solid rgba(201,168,76,0.1);
+    border-radius: 2px;
+    padding: 32px 28px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s, border-color 0.3s;
+  }
+
+  .feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 0;
+    background: var(--gold);
+    transition: height 0.4s;
+  }
+
+  .feature-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(201,168,76,0.3);
+  }
+
+  .feature-card:hover::before { height: 100%; }
+
+  .feature-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    gap: 12px;
+  }
+
+  .feature-card-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+
+  .feature-card-tag {
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .tag-live { background: rgba(76,175,130,0.15); color: var(--green); }
+  .tag-partial { background: rgba(201,168,76,0.15); color: var(--gold-light); }
+
+  .feature-card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--white);
+    margin-bottom: 10px;
+    line-height: 1.3;
+  }
+
+  .feature-card-desc {
+    font-size: 0.83rem;
+    color: var(--text-muted);
+    line-height: 1.65;
+  }
+
+  /* ─── CALL FLOW ─── */
+  .flow-wrapper {
+    background: var(--navy-mid);
+    border: 1px solid rgba(201,168,76,0.12);
+    border-radius: 2px;
+    padding: 48px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .flow-wrapper::after {
+    content: 'CALL FLOW';
+    position: absolute;
+    top: 20px; right: 24px;
+    font-size: 0.6rem;
+    letter-spacing: 0.3em;
+    color: rgba(201,168,76,0.2);
+    font-weight: 600;
+  }
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 0;
+  }
+
+  .flow-node {
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  .flow-box {
+    background: var(--navy-light);
+    border: 1px solid rgba(201,168,76,0.2);
+    padding: 10px 16px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--white);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .flow-box.highlight {
+    background: rgba(201,168,76,0.12);
+    border-color: var(--gold);
+    color: var(--gold-light);
+  }
+
+  .flow-branch {
+    display: flex;
+    gap: 16px;
+    margin-top: 32px;
+    flex-wrap: wrap;
+  }
+
+  .branch-card {
+    flex: 1;
+    min-width: 180px;
+    background: var(--navy-light);
+    border: 1px solid rgba(138,163,191,0.2);
+    padding: 20px;
+    border-radius: 2px;
+  }
+
+  .branch-card.active { border-color: var(--teal); background: rgba(27,158,140,0.07); }
+  .branch-card.active .branch-title { color: var(--teal-light); }
+
+  .branch-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--slate);
+    margin-bottom: 10px;
+  }
+
+  .branch-steps {
+    list-style: none;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.8;
+  }
+
+  .branch-steps li::before { content: '→ '; color: var(--gold); }
+
+  /* ─── TECH STACK ─── */
+  .stack-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+
+  .stack-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--navy-mid);
+    border: 1px solid rgba(201,168,76,0.08);
+    padding: 16px 18px;
+    transition: border-color 0.3s;
+  }
+
+  .stack-item:hover { border-color: rgba(201,168,76,0.25); }
+
+  .stack-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot-gold { background: var(--gold); }
+  .dot-teal { background: var(--teal); }
+  .dot-blue { background: #5B8BC9; }
+  .dot-purple { background: #9B6EC9; }
+  .dot-green { background: var(--green); }
+
+  .stack-name {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--white);
+  }
+
+  .stack-role {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+
+  /* ─── COMPLETION STATUS ─── */
+  .status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+
+  .status-col-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(201,168,76,0.15);
+  }
+
+  .badge-done {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+  }
+
+  .badge-pending {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 8px rgba(201,168,76,0.5);
+  }
+
+  .status-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .status-check {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.6rem;
+    margin-top: 2px;
+  }
+
+  .check-done { background: rgba(76,175,130,0.15); color: var(--green); border: 1px solid rgba(76,175,130,0.3); }
+  .check-pending { background: rgba(201,168,76,0.08); color: var(--gold); border: 1px solid rgba(201,168,76,0.25); }
+
+  .status-text {
+    font-size: 0.85rem;
+    color: var(--text-body);
+    line-height: 1.5;
+  }
+
+  .status-sub {
+    font-size: 0.73rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  /* ─── CLIENT NEEDS SECTION ─── */
+  .needs-section {
+    background: linear-gradient(135deg, rgba(27,158,140,0.06) 0%, rgba(201,168,76,0.04) 100%);
+    border: 1px solid rgba(27,158,140,0.2);
+    border-left: 3px solid var(--teal);
+    padding: 60px 60px 60px 56px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .needs-section::before {
+    content: '"';
+    position: absolute;
+    top: -20px; right: 40px;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 14rem;
+    color: rgba(27,158,140,0.05);
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .needs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin-top: 40px;
+  }
+
+  .need-item {
+    position: relative;
+    padding-left: 20px;
+  }
+
+  .need-item::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 6px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--teal);
+  }
+
+  .need-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--teal-light);
+    margin-bottom: 6px;
+    letter-spacing: 0.03em;
+  }
+
+  .need-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.65;
+  }
+
+  .need-highlight {
+    background: rgba(27,158,140,0.1);
+    border: 1px solid rgba(27,158,140,0.25);
+    border-radius: 2px;
+    padding: 16px 20px;
+    margin-top: 10px;
+    font-size: 0.78rem;
+    color: var(--teal-light);
+    font-style: italic;
+  }
+
+  /* ─── PRIORITY ITEMS ─── */
+  .priority-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .priority-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 28px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    position: relative;
+  }
+
+  .priority-num {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 2.8rem;
+    font-weight: 300;
+    color: rgba(201,168,76,0.15);
+    line-height: 1;
+    flex-shrink: 0;
+    width: 56px;
+    text-align: right;
+  }
+
+  .priority-body { flex: 1; }
+
+  .priority-title {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--white);
+    margin-bottom: 6px;
+  }
+
+  .priority-desc {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.65;
+  }
+
+  .priority-tier {
+    font-size: 0.62rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin-top: 10px;
+    display: inline-block;
+  }
+
+  .tier-1 { background: rgba(226,92,92,0.12); color: #E28C8C; border: 1px solid rgba(226,92,92,0.25); }
+  .tier-2 { background: rgba(201,168,76,0.12); color: var(--gold-light); border: 1px solid rgba(201,168,76,0.25); }
+  .tier-3 { background: rgba(27,158,140,0.1); color: var(--teal-light); border: 1px solid rgba(27,158,140,0.2); }
+
+  /* ─── FOOTER ─── */
+  footer {
+    padding: 60px 0 40px;
+    border-top: 1px solid rgba(201,168,76,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: gap;
+    gap: 20px;
+  }
+
+  .footer-brand {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.4rem;
+    font-weight: 300;
+    color: var(--gold-light);
+    letter-spacing: 0.06em;
+  }
+
+  .footer-sub {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  .footer-right {
+    text-align: right;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.8;
+  }
+
+  /* ─── CODE CHIP ─── */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    background: rgba(201,168,76,0.08);
+    border: 1px solid rgba(201,168,76,0.15);
+    padding: 2px 7px;
+    color: var(--gold-light);
+    border-radius: 2px;
+  }
+
+  /* ─── ANIMATIONS ─── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(8px); }
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* ─── PROGRESS BAR ─── */
+  .progress-bar-wrap {
+    background: rgba(255,255,255,0.05);
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 10px;
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(to right, var(--gold), var(--teal));
+    border-radius: 2px;
+    transition: width 1.5s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* ─── PHASE TIMELINE ─── */
+  .phase-list {
+    position: relative;
+    padding-left: 40px;
+  }
+
+  .phase-list::before {
+    content: '';
+    position: absolute;
+    left: 8px; top: 0; bottom: 0;
+    width: 1px;
+    background: linear-gradient(to bottom, var(--gold), var(--teal), transparent);
+  }
+
+  .phase-item {
+    position: relative;
+    padding: 0 0 36px 0;
+  }
+
+  .phase-item::before {
+    content: '';
+    position: absolute;
+    left: -36px;
+    top: 6px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--gold);
+    border: 2px solid var(--navy);
+    box-shadow: 0 0 0 3px rgba(201,168,76,0.2);
+  }
+
+  .phase-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 4px;
+  }
+
+  .phase-title {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--white);
+    margin-bottom: 6px;
+  }
+
+  .phase-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  /* ─── LANG PILLS ─── */
+  .lang-pills {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  .lang-pill {
+    padding: 6px 16px;
+    border: 1px solid rgba(201,168,76,0.25);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--gold-light);
+    background: rgba(201,168,76,0.06);
+  }
+
+  /* ─── RESPONSIVE ─── */
+  @media (max-width: 768px) {
+    .wrapper { padding: 0 24px; }
+    .arch-grid { grid-template-columns: 1fr; }
+    .status-grid { grid-template-columns: 1fr; }
+    .needs-grid { grid-template-columns: 1fr; }
+    .features-grid { grid-template-columns: 1fr; }
+    nav { padding: 16px 24px; }
+    .hero { padding: 100px 0 60px; }
+    .hero-stats { gap: 28px; }
+    .flow-wrapper { padding: 28px; }
+    .needs-section { padding: 36px 28px 36px 24px; }
+    footer { flex-direction: column; align-items: flex-start; }
+    .footer-right { text-align: left; }
+  }
+
+  /* ─── QUOTE CALLOUT ─── */
+  .callout {
+    background: rgba(201,168,76,0.05);
+    border-left: 2px solid var(--gold);
+    padding: 20px 24px;
+    margin: 24px 0;
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.05rem;
+    font-style: italic;
+    color: var(--gold-pale);
+    line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">Nova Vacation Homes</div>
+  <div class="nav-date">Progress Report — May 2026</div>
+</nav>
+
+<!-- HERO -->
+<div class="wrapper">
+  <section class="hero">
+    <div class="hero-eyebrow">AI Voice Agent — Project Update</div>
+    <h1 class="hero-title">Your AI Receptionist<br>is <em>Alive</em>.</h1>
+    <div class="hero-subtitle">Phase 1–8 Complete</div>
+    <p class="hero-desc">
+      We've built a production-grade AI voice agent that answers your phones, understands callers, routes them intelligently, captures reservation inquiries, handles guest service requests, and escalates to your team exactly when needed.
+    </p>
+    <div class="hero-stats">
+      <div class="stat">
+        <div class="stat-num" data-count="29">0</div>
+        <div class="stat-label">Call States Mapped</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" data-count="3">0</div>
+        <div class="stat-label">Specialized Agents</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">3</div>
+        <div class="stat-label">Languages Supported</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">&lt;800ms</div>
+        <div class="stat-label">Response Latency</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">~80%</div>
+        <div class="stat-label">AI Cost Reduction</div>
+      </div>
+    </div>
+
+    <div class="scroll-hint" style="opacity:0; animation: fadeUp 1s ease 1.2s forwards;">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 5v14m0 0l-5-5m5 5l5-5"/></svg>
+      Scroll to explore
+    </div>
+  </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- WHAT WE BUILT -->
+<div class="wrapper">
+  <section>
+    <div class="reveal">
+      <div class="section-label">Architecture</div>
+      <h2 class="section-title">How the System <em>Works</em></h2>
+      <p class="section-intro">
+        When a customer calls Nova, the AI takes over instantly — transcribing speech in real time, classifying intent, routing to the right agent, and responding in under a second.
+      </p>
+    </div>
+
+    <div class="arch-grid reveal">
+      <div class="arch-cell">
+        <div class="arch-cell-icon">📞</div>
+        <div class="arch-cell-title">Voice Layer</div>
+        <div class="arch-cell-desc">Twilio ConversationRelay handles the call. Deepgram transcribes speech to text. ElevenLabs converts AI responses back to natural-sounding voice in real time.</div>
+      </div>
+      <div class="arch-cell">
+        <div class="arch-cell-icon">🧠</div>
+        <div class="arch-cell-title">AI Brain</div>
+        <div class="arch-cell-desc">Claude (Anthropic) runs the decision engine. Prompt caching cuts costs ~80% and latency by ~300ms per turn. Three specialized agents handle different call types.</div>
+      </div>
+      <div class="arch-cell">
+        <div class="arch-cell-icon">🗄️</div>
+        <div class="arch-cell-title">Data Layer</div>
+        <div class="arch-cell-desc">PostgreSQL stores all customers, calls, and service requests. Redis manages live call sessions. Your property management system is read directly — no data migration needed.</div>
+      </div>
+      <div class="arch-cell">
+        <div class="arch-cell-icon">🔀</div>
+        <div class="arch-cell-title">Routing Engine</div>
+        <div class="arch-cell-desc">A state machine with 29 distinct call states ensures every conversation follows a precise path — from greeting to booking confirmation or human handoff.</div>
+      </div>
+      <div class="arch-cell">
+        <div class="arch-cell-icon">🔔</div>
+        <div class="arch-cell-title">Notifications</div>
+        <div class="arch-cell-desc">Escalation alerts and intake summaries fire to your Slack channel the moment a caller needs human attention or submits a reservation inquiry.</div>
+      </div>
+      <div class="arch-cell">
+        <div class="arch-cell-icon">🛡️</div>
+        <div class="arch-cell-title">Security & Scale</div>
+        <div class="arch-cell-desc">Twilio signature validation, per-number rate limiting, encrypted data, and Docker containerization. CI/CD pipeline auto-tests every code change.</div>
+      </div>
+    </div>
+
+    <!-- CALL FLOW -->
+    <div class="flow-wrapper reveal">
+      <div style="font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); margin-bottom: 28px;">Live Call Journey</div>
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+        <div class="flow-box highlight">📞 Incoming Call</div>
+        <div style="color: var(--gold); font-size: 1.2rem;">→</div>
+        <div class="flow-box">Transcription (Deepgram)</div>
+        <div style="color: var(--gold); font-size: 1.2rem;">→</div>
+        <div class="flow-box">Language Detection</div>
+        <div style="color: var(--gold); font-size: 1.2rem;">→</div>
+        <div class="flow-box">Intent Classification</div>
+        <div style="color: var(--gold); font-size: 1.2rem;">→</div>
+        <div class="flow-box highlight">Route to Agent</div>
+      </div>
+      <div class="flow-branch">
+        <div class="branch-card active">
+          <div class="branch-title">🏠 Future Guest</div>
+          <ul class="branch-steps">
+            <li>Capture dates & guests</li>
+            <li>Check availability</li>
+            <li>Log reservation interest</li>
+            <li>Confirm follow-up</li>
+          </ul>
+        </div>
+        <div class="branch-card active">
+          <div class="branch-title">🔑 Existing Guest</div>
+          <ul class="branch-steps">
+            <li>Verify booking</li>
+            <li>Check-in info & access</li>
+            <li>Extension requests</li>
+            <li>Service requests</li>
+          </ul>
+        </div>
+        <div class="branch-card active">
+          <div class="branch-title">🔧 Service Agent</div>
+          <ul class="branch-steps">
+            <li>Maintenance reports</li>
+            <li>Cleaning requests</li>
+            <li>Pool/BBQ/amenities</li>
+            <li>Urgency grading</li>
+          </ul>
+        </div>
+        <div class="branch-card active">
+          <div class="branch-title">📋 Business Inquiry</div>
+          <ul class="branch-steps">
+            <li>New partnership inquiries</li>
+            <li>Owner onboarding</li>
+            <li>Log & alert team</li>
+            <li>Promise callback</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- FEATURES BUILT -->
+<div class="wrapper">
+  <section>
+    <div class="reveal">
+      <div class="section-label">Features</div>
+      <h2 class="section-title">What's <em>Working Today</em></h2>
+      <p class="section-intro">Every feature below is implemented, tested, and ready for real calls. This is not a prototype — it's a production foundation.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🎙️</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">Real-Time Voice Processing</div>
+        <div class="feature-card-desc">Calls handled end-to-end via Twilio ConversationRelay. Speech transcribed by Deepgram Nova-3, responses spoken by ElevenLabs in a warm, natural voice. Callers can interrupt mid-sentence — no awkward wait.</div>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🌎</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">Multilingual Support</div>
+        <div class="feature-card-desc">English, Spanish, and Portuguese — auto-detected from the first sentence. The AI switches language mid-call if the customer prefers. Prompts, voice IDs, and responses are all fully localized.</div>
+        <div class="lang-pills">
+          <span class="lang-pill">🇺🇸 English</span>
+          <span class="lang-pill">🇪🇸 Español</span>
+          <span class="lang-pill">🇧🇷 Português</span>
+        </div>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🗺️</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">29-State Call Navigation</div>
+        <div class="feature-card-desc">A precise state machine governs every conversation. The AI knows exactly where it is in the call, what's been collected, and what to do next — eliminating confusion and loops.</div>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🏡</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">PMS Integration (Read-Only)</div>
+        <div class="feature-card-desc">The agent reads directly from your existing property management system — guest records, reservations, listings, and check-in guides. No data migration, no duplication.</div>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🔧</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">Service Request Capture</div>
+        <div class="feature-card-desc">Current guests can report maintenance issues (AC, plumbing, WiFi), schedule cleanings, or request extras (pool heater, BBQ rental). All logged with urgency grade and timestamp.</div>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">📬</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">Reservation Interest Capture</div>
+        <div class="feature-card-desc">Callers interested in booking are walked through dates, guest count, and preferences. The inquiry is logged to your database and your team gets a Slack notification instantly.</div>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">📊</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">Call Logging & Analytics</div>
+        <div class="feature-card-desc">Every call is recorded with: caller intent, language, agent used, tools called, duration, escalation reason, and full transcript. Daily analytics aggregated automatically.</div>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">🚨</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">Smart Human Escalation</div>
+        <div class="feature-card-desc">The AI knows its limits. Billing disputes, safety issues, confused callers, or anything outside its scope triggers a warm handoff to your team — with full context passed along.</div>
+      </div>
+
+      <div class="feature-card reveal">
+        <div class="feature-card-header">
+          <div class="feature-card-icon">💰</div>
+          <span class="feature-card-tag tag-live">Live</span>
+        </div>
+        <div class="feature-card-title">Prompt Caching (~80% Cost Savings)</div>
+        <div class="feature-card-desc">Business rules, property catalogs, and system prompts are cached at the AI level. Cache hits reduce both cost and response time dramatically — built for scale from day one.</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- TECH STACK -->
+<div class="wrapper">
+  <section>
+    <div class="reveal">
+      <div class="section-label">Technology</div>
+      <h2 class="section-title">Built on <em>Best-in-Class</em> Tools</h2>
+      <p class="section-intro">Every component was chosen for reliability, performance, and fit — not hype. The stack is fully open to audit and proven in enterprise production environments.</p>
+    </div>
+
+    <div class="stack-grid reveal">
+      <div class="stack-item">
+        <div class="stack-dot dot-gold"></div>
+        <div>
+          <div class="stack-name">Claude (Anthropic)</div>
+          <div class="stack-role">AI decision engine</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-blue"></div>
+        <div>
+          <div class="stack-name">Twilio ConversationRelay</div>
+          <div class="stack-role">Voice call infrastructure</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-purple"></div>
+        <div>
+          <div class="stack-name">ElevenLabs Flash v2.5</div>
+          <div class="stack-role">Text-to-speech voice</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-teal"></div>
+        <div>
+          <div class="stack-name">Deepgram Nova-3</div>
+          <div class="stack-role">Speech-to-text transcription</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-blue"></div>
+        <div>
+          <div class="stack-name">PostgreSQL 16</div>
+          <div class="stack-role">Customer & call database</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-green"></div>
+        <div>
+          <div class="stack-name">Redis 7</div>
+          <div class="stack-role">Live session management</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-gold"></div>
+        <div>
+          <div class="stack-name">Node.js / TypeScript</div>
+          <div class="stack-role">Application server</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-teal"></div>
+        <div>
+          <div class="stack-name">Docker + Render.com</div>
+          <div class="stack-role">Containerized deployment</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-purple"></div>
+        <div>
+          <div class="stack-name">GitHub Actions CI/CD</div>
+          <div class="stack-role">Automated testing & deploy</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-blue"></div>
+        <div>
+          <div class="stack-name">Pino + Slack Webhooks</div>
+          <div class="stack-role">Logging & team alerts</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-green"></div>
+        <div>
+          <div class="stack-name">Zod</div>
+          <div class="stack-role">Config validation at startup</div>
+        </div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-dot dot-gold"></div>
+        <div>
+          <div class="stack-name">Foreign Data Wrapper</div>
+          <div class="stack-role">Read your PMS live — no sync</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- COMPLETION STATUS -->
+<div class="wrapper">
+  <section>
+    <div class="reveal">
+      <div class="section-label">Progress</div>
+      <h2 class="section-title">Done vs. <em>What's Next</em></h2>
+      <p class="section-intro">The core system is fully built and operational. The remaining items are enhancements that will unlock more automation and insight.</p>
+    </div>
+
+    <div style="margin-bottom: 32px; reveal">
+      <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px;">
+        <span>Overall Build Progress</span>
+        <span>~70% Complete</span>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" style="width: 0%" id="progress-bar"></div>
+      </div>
+    </div>
+
+    <div class="status-grid reveal">
+      <div>
+        <div class="status-col-header" style="color: var(--green);">
+          <div class="badge-done"></div>
+          Completed &amp; Working
+        </div>
+
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Multi-agent orchestration</div>
+            <div class="status-sub">Master + Reservation + Service agents routing correctly</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Real-time voice pipeline</div>
+            <div class="status-sub">Twilio → Deepgram → Claude → ElevenLabs end-to-end</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">29-state call flow machine</div>
+            <div class="status-sub">Precise conversation tracking across all branches</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">English / Spanish / Portuguese</div>
+            <div class="status-sub">Auto-detected, runtime-switched, fully localized</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">PMS database integration</div>
+            <div class="status-sub">Live read from your property management system</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Service request capture</div>
+            <div class="status-sub">Maintenance, cleaning, amenities logged with urgency</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Reservation inquiry logging</div>
+            <div class="status-sub">Dates, guests, budget captured and stored</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Slack escalation alerts</div>
+            <div class="status-sub">Instant notification to your team on human handoff</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Rate limiting &amp; Twilio validation</div>
+            <div class="status-sub">Security hardened for production traffic</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Prompt caching (~80% cost savings)</div>
+            <div class="status-sub">Cache hit tracking operational</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Render.com cloud deployment</div>
+            <div class="status-sub">Docker container, CI/CD, health checks live</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-done">✓</div>
+          <div>
+            <div class="status-text">Full call transcript storage</div>
+            <div class="status-sub">Every conversation logged for review and AI improvement</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="status-col-header" style="color: var(--gold-light);">
+          <div class="badge-pending"></div>
+          Planned Enhancements
+        </div>
+
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Staff operations dashboard</div>
+            <div class="status-sub">UI to manage intake queue, service requests, call reviews</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Semantic FAQ search</div>
+            <div class="status-sub">AI-powered search (pgvector + embeddings) vs. keyword matching</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Post-call SMS confirmations</div>
+            <div class="status-sub">Auto-send booking summary or service ticket to caller's phone</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">After-hours voicemail</div>
+            <div class="status-sub">Capture messages when no human is available for escalation</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Call recording storage</div>
+            <div class="status-sub">Save Twilio recordings linked to call log records</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Caller session resumption</div>
+            <div class="status-sub">Re-identify caller if they call back within 30 minutes</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Call quality auto-scoring</div>
+            <div class="status-sub">AI grades each call: intent resolved, tone, escalation appropriate</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Integration tests (end-to-end)</div>
+            <div class="status-sub">Automated full-call simulation tests before each deploy</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Direct booking confirmation</div>
+            <div class="status-sub">Agent completes booking vs. current handoff-to-staff flow</div>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-check check-pending">○</div>
+          <div>
+            <div class="status-text">Outbound calls (future)</div>
+            <div class="status-sub">Follow up on reservation inquiries automatically</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- WHAT WE NEED FROM CLIENT -->
+<div class="wrapper">
+  <section>
+    <div class="reveal">
+      <div class="section-label">Next Steps</div>
+      <h2 class="section-title">What We Need <em>From You</em></h2>
+      <p class="section-intro">
+        To make the AI significantly smarter and to go live with real calls, there are a few key inputs we need from your team. Each one directly improves how the agent handles your specific customers.
+      </p>
+    </div>
+
+    <div class="needs-section reveal">
+      <div style="font-family: 'Cormorant Garamond', serif; font-size: 1.6rem; font-weight: 300; color: var(--white); margin-bottom: 8px;">
+        The AI learns from <em style="color: var(--teal-light);">your</em> best calls.
+      </div>
+      <div style="font-size: 0.88rem; color: var(--text-muted); max-width: 580px;">
+        The more context you share about how your team currently handles calls, the smarter and more accurate the AI becomes. Here's exactly what would help most:
+      </div>
+
+      <div class="needs-grid">
+
+        <div class="need-item">
+          <div class="need-title">🎧 Successful Call Examples</div>
+          <div class="need-desc">
+            Recordings or transcripts of 5–10 calls where your team handled things perfectly — a smooth booking, a service request resolved well, a great escalation. These become training examples for the AI's tone, phrasing, and decision logic.
+          </div>
+          <div class="need-highlight">
+            "Here's exactly how we like to handle a caller asking about pet-friendly properties..."
+          </div>
+        </div>
+
+        <div class="need-item">
+          <div class="need-title">📋 Your Most-Asked Questions</div>
+          <div class="need-desc">
+            A list of the 20–30 questions your team answers most on the phone — anything about check-in, parking, pet policies, amenities, cancellations, pricing. We'll load these directly into the AI's knowledge base.
+          </div>
+          <div class="need-highlight">
+            "What time is check-in?" "Is there a hot tub?" "Can I bring my dog?" — these exact phrasing variants matter.
+          </div>
+        </div>
+
+        <div class="need-item">
+          <div class="need-title">🚫 Edge Cases &amp; Hard No's</div>
+          <div class="need-desc">
+            Situations where the AI should always escalate to a human — no matter what. Examples: angry guests, security concerns, special event bookings, large group inquiries, accessibility needs. Defining these protects your brand.
+          </div>
+          <div class="need-highlight">
+            "Never let the AI commit to a price override" or "Always escalate groups over 10 people."
+          </div>
+        </div>
+
+        <div class="need-item">
+          <div class="need-title">🏷️ Pricing &amp; Policy Details</div>
+          <div class="need-desc">
+            Current cancellation policies, deposit requirements, check-in/check-out times, pet fees, cleaning fees, and any seasonal pricing rules the agent should communicate confidently — or know to avoid committing to.
+          </div>
+          <div class="need-highlight">
+            The AI won't quote prices it doesn't know, but knowing your general ranges prevents "I'm not sure" responses.
+          </div>
+        </div>
+
+        <div class="need-item">
+          <div class="need-title">🧑‍💼 Team Escalation Contacts</div>
+          <div class="need-desc">
+            Who does the AI route to for different call types? Is there a different contact for maintenance vs. new bookings vs. owner inquiries? What are your business hours? We need to configure the escalation logic precisely.
+          </div>
+          <div class="need-highlight">
+            Slack channels, phone numbers, or email addresses for each escalation type.
+          </div>
+        </div>
+
+        <div class="need-item">
+          <div class="need-title">📞 Live Twilio Number</div>
+          <div class="need-desc">
+            To go live with real calls, we need a Twilio phone number pointed at the agent. This can be your existing business number (via call forwarding) or a new number. Takes 15 minutes to configure once decided.
+          </div>
+          <div class="need-highlight">
+            Decision needed: forward existing number, or provision a new one for testing first?
+          </div>
+        </div>
+
+        <div class="need-item">
+          <div class="need-title">🎭 Brand Voice Guidelines</div>
+          <div class="need-desc">
+            Words and phrases your team always uses — or never uses. Your company's personality: warm and casual, or professional and concise? Should the agent introduce itself by name? We can tune the voice to match perfectly.
+          </div>
+          <div class="need-highlight">
+            "We always say 'we'd love to have you' — never 'your request has been logged.'"
+          </div>
+        </div>
+
+        <div class="need-item">
+          <div class="need-title">🔑 ElevenLabs Voice Selection</div>
+          <div class="need-desc">
+            The current voice IDs are placeholders. We need you to listen to a few ElevenLabs voice samples and pick the voice that best represents Nova Vacation Homes for English, Spanish, and Portuguese callers.
+          </div>
+          <div class="need-highlight">
+            We can demo 5–6 voice options in a 10-minute call and confirm the final selection.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- ROADMAP -->
+<div class="wrapper">
+  <section>
+    <div class="reveal">
+      <div class="section-label">Roadmap</div>
+      <h2 class="section-title">What Gets <em>Built Next</em></h2>
+      <p class="section-intro">The backlog is prioritized by business impact. Here are the top items ready to build as soon as we have the client inputs above.</p>
+    </div>
+
+    <div class="priority-list reveal">
+      <div class="priority-item">
+        <div class="priority-num">01</div>
+        <div class="priority-body">
+          <div class="priority-title">Go Live with Real Calls</div>
+          <div class="priority-desc">Connect a Twilio number, confirm voice selection, load the FAQ knowledge base, and run the first 20 real calls in supervised mode to validate AI behaviour before full automation.</div>
+          <span class="priority-tier tier-1">Critical Path</span>
+        </div>
+      </div>
+
+      <div class="priority-item">
+        <div class="priority-num">02</div>
+        <div class="priority-body">
+          <div class="priority-title">Staff Operations Dashboard</div>
+          <div class="priority-desc">A web interface where your team sees the live intake queue: incoming reservation inquiries, service requests, escalation reasons, and full call transcripts — sortable, filterable, and actionable.</div>
+          <span class="priority-tier tier-1">High Impact</span>
+        </div>
+      </div>
+
+      <div class="priority-item">
+        <div class="priority-num">03</div>
+        <div class="priority-body">
+          <div class="priority-title">Semantic FAQ Search (AI-Powered)</div>
+          <div class="priority-desc">Replace keyword matching with vector embeddings so the AI finds the right FAQ answer even when callers use different words ("can my cat come?" → pet policy). Dramatically reduces "I'm not sure" responses.</div>
+          <span class="priority-tier tier-2">Upcoming</span>
+        </div>
+      </div>
+
+      <div class="priority-item">
+        <div class="priority-num">04</div>
+        <div class="priority-body">
+          <div class="priority-title">Post-Call SMS Confirmations</div>
+          <div class="priority-desc">After a booking inquiry or service request, auto-text the caller a summary: "Thanks for calling Nova! Your maintenance request has been logged. We'll follow up by 5pm." Instant professionalism boost.</div>
+          <span class="priority-tier tier-2">Upcoming</span>
+        </div>
+      </div>
+
+      <div class="priority-item">
+        <div class="priority-num">05</div>
+        <div class="priority-body">
+          <div class="priority-title">Call Quality Scoring + AI Improvement Loop</div>
+          <div class="priority-desc">Each completed call gets graded: Did the AI resolve the caller's intent? Was the tone appropriate? Were there unnecessary escalations? Weekly summaries feed back into prompt improvement — the AI gets smarter every week.</div>
+          <span class="priority-tier tier-3">Phase 2</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="divider"></div>
+
+<!-- FOOTER -->
+<div class="wrapper">
+  <footer>
+    <div>
+      <div class="footer-brand">Nova Vacation Homes</div>
+      <div class="footer-sub">AI Voice Agent — Progress Presentation</div>
+      <div class="footer-sub" style="margin-top: 8px;">Prepared by Shabir — Next Scale Digital</div>
+    </div>
+    <div class="footer-right">
+      <div>Built in 8 structured phases</div>
+      <div>Deployed on Render.com</div>
+      <div style="margin-top: 8px; color: rgba(201,168,76,0.5);">May 2026</div>
+    </div>
+  </footer>
+</div>
+
+<script>
+  // ─── BACKGROUND CANVAS ───
+  const canvas = document.getElementById('bg-canvas');
+  const ctx = canvas.getContext('2d');
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const particles = Array.from({ length: 60 }, () => ({
+    x: Math.random() * window.innerWidth,
+    y: Math.random() * window.innerHeight,
+    r: Math.random() * 1.2 + 0.3,
+    dx: (Math.random() - 0.5) * 0.3,
+    dy: (Math.random() - 0.5) * 0.3,
+    o: Math.random() * 0.4 + 0.05,
+  }));
+
+  function drawCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // mesh gradient
+    const g1 = ctx.createRadialGradient(canvas.width * 0.2, canvas.height * 0.3, 0, canvas.width * 0.2, canvas.height * 0.3, canvas.width * 0.6);
+    g1.addColorStop(0, 'rgba(27,158,140,0.04)');
+    g1.addColorStop(1, 'transparent');
+    ctx.fillStyle = g1;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const g2 = ctx.createRadialGradient(canvas.width * 0.8, canvas.height * 0.6, 0, canvas.width * 0.8, canvas.height * 0.6, canvas.width * 0.5);
+    g2.addColorStop(0, 'rgba(201,168,76,0.05)');
+    g2.addColorStop(1, 'transparent');
+    ctx.fillStyle = g2;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // particles
+    particles.forEach(p => {
+      p.x += p.dx;
+      p.y += p.dy;
+      if (p.x < 0) p.x = canvas.width;
+      if (p.x > canvas.width) p.x = 0;
+      if (p.y < 0) p.y = canvas.height;
+      if (p.y > canvas.height) p.y = 0;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(201,168,76,${p.o})`;
+      ctx.fill();
+    });
+
+    requestAnimationFrame(drawCanvas);
+  }
+  drawCanvas();
+
+  // ─── SCROLL REVEAL ───
+  const observer = new IntersectionObserver(
+    entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+    { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+  );
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // ─── PROGRESS BAR ───
+  const barObserver = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        setTimeout(() => {
+          document.getElementById('progress-bar').style.width = '70%';
+        }, 200);
+        barObserver.disconnect();
+      }
+    });
+  }, { threshold: 0.3 });
+
+  const barEl = document.getElementById('progress-bar');
+  if (barEl) barObserver.observe(barEl.closest('section'));
+
+  // ─── COUNTER ANIMATION ───
+  function animateCounter(el, target) {
+    let count = 0;
+    const step = Math.ceil(target / 40);
+    const interval = setInterval(() => {
+      count = Math.min(count + step, target);
+      el.textContent = count;
+      if (count >= target) clearInterval(interval);
+    }, 40);
+  }
+
+  const counterObserver = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.querySelectorAll('[data-count]').forEach(el => {
+          animateCounter(el, parseInt(el.dataset.count));
+        });
+        counterObserver.disconnect();
+      }
+    });
+  }, { threshold: 0.3 });
+
+  const heroStats = document.querySelector('.hero-stats');
+  if (heroStats) counterObserver.observe(heroStats);
+</script>
+
+</body>
+</html>

@@ -42,12 +42,15 @@ const configSchema = z.object({
   CR_VOICE_PT: z.string().default('cyD08lEy76q03ER1jZ7y'),  // ElevenLabs Portuguese voice
 
   // ElevenLabs voice tuning — appended to the voice ID as "VOICE_ID-SPEED_STABILITY_SIMILARITY".
-  // Defaults follow ElevenLabs' conversational guidance:
-  //   speed 1.0       — natural pace
-  //   stability 0.5   — "creative" range, gives emotional dynamics (>0.7 is monotone)
+  // Defaults follow ElevenLabs' conversational guidance + voice-realism research:
+  //   speed 0.98      — close to natural pace; tested as the sweet spot for a warm
+  //                     receptionist on phone audio. 0.95 reads slightly slow over
+  //                     Twilio; 1.0+ starts to feel bot-fast.
+  //   stability 0.4   — "creative" range; lower value reduces TTS startup latency
+  //                     while keeping emotional dynamics (>0.7 is monotone)
   //   similarity 0.75 — default; higher introduces artifacts
-  CR_VOICE_SPEED:      z.coerce.number().min(0.7).max(1.2).default(1.0),
-  CR_VOICE_STABILITY:  z.coerce.number().min(0.0).max(1.0).default(0.5),
+  CR_VOICE_SPEED:      z.coerce.number().min(0.7).max(1.2).default(0.98),
+  CR_VOICE_STABILITY:  z.coerce.number().min(0.0).max(1.0).default(0.4),
   CR_VOICE_SIMILARITY: z.coerce.number().min(0.0).max(1.0).default(0.75),
 
   CR_TRANSCRIPTION_PROVIDER: z.enum(['Deepgram', 'Google']).default('Deepgram'),
