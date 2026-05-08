@@ -142,13 +142,23 @@ const applyToolSideEffects = (
 
     case 'verify_reservation':
       if (d['found']) {
-        const r = d['reservation'] as Record<string, string>;
+        const r = d['reservation'] as Record<string, unknown>;
+        // ReservationRecord uses propertyTitle (not propertyName) and checkIn/checkOut
+        // as Date objects. Map them to what StateMachine.setReservation expects.
+        const toDateStr = (v: unknown): string => {
+          if (v instanceof Date) {
+            return v.toLocaleDateString('en-US', {
+              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+            });
+          }
+          return v ? String(v) : '';
+        };
         ctx = StateMachine.setReservation(ctx, {
-          reservationId: r['id'] ?? r['reservationId'],
-          guestName: r['guestName'] ?? r['guest_name'],
-          propertyName: r['propertyName'] ?? r['property_name'],
-          checkInDate: r['checkInDate'] ?? r['check_in_date'],
-          checkOutDate: r['checkOutDate'] ?? r['check_out_date'],
+          reservationId: String(r['id'] ?? r['reservationId'] ?? ''),
+          guestName: String(r['guestName'] ?? r['guest_name'] ?? ''),
+          propertyName: String(r['propertyTitle'] ?? r['propertyName'] ?? r['property_name'] ?? 'your property'),
+          checkInDate: toDateStr(r['checkIn'] ?? r['checkInDate'] ?? r['check_in_date']),
+          checkOutDate: toDateStr(r['checkOut'] ?? r['checkOutDate'] ?? r['check_out_date']),
           confirmed: true,
         });
         return StateMachine.transition(ctx, 'EXISTING_GUEST_ROUTING');

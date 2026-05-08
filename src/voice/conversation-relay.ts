@@ -174,13 +174,22 @@ const handlePrompt = async (
         }
 
         case 'tool_start': {
-          // If this tool runs slow, speak a filler so the line doesn't go quiet
+          // Flush any bridge text the agent wrote before calling the tool.
+          // Without this, the sentence buffer holds the bridge phrase until
+          // whitespace follows — which never comes before a tool_start — so
+          // the caller hears silence instead of "Sure, let me pull that up."
+          if (buffer.trim()) {
+            sendText(ws, buffer, false, lang);
+            buffer = '';
+          }
+          // Filler timer — if the tool takes >FILLER_DELAY_MS, speak a
+          // bridging phrase so the line never goes completely silent.
           state.fillerTimer = setTimeout(() => {
             const filler = pickFiller(state.language);
             logger.debug({ callSid: state.callSid, filler }, 'Speaking filler during tool call');
             send(ws, {
               type: 'text', token: filler, last: true, lang,
-              interruptible: true, preemptible: true,  // preemptible: kill the filler when real reply starts
+              interruptible: true, preemptible: true,
             });
           }, FILLER_DELAY_MS);
           break;

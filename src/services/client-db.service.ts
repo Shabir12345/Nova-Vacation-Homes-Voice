@@ -78,8 +78,11 @@ export const ClientDbService = {
     email?: string;
     confirmationCode?: string;  // OTA confirmation code e.g. "HMZKYB34CX"
   }): Promise<ReservationRecord | null> => {
+    const client = await pool().connect();
     try {
-      // Match by OTA confirmation code first (most precise), then name/email
+      // 10-second cap — FDW calls to Guesty can be slow on cold connections.
+      await client.query("SET LOCAL statement_timeout = '10s'");
+
       const whereClauses: string[] = [];
       const values: unknown[] = [];
       let idx = 1;
@@ -94,9 +97,22 @@ export const ClientDbService = {
         values.push(params.email.trim());
       }
 
-      // Always include name match as fallback
+      // Full name substring match
+      const name = params.guestName.trim();
       whereClauses.push(`LOWER(r.guest_full_name) LIKE LOWER($${idx++})`);
-      values.push(`%${params.guestName.trim()}%`);
+      values.push(`%${name}%`);
+
+      // Word-by-word match — handles "John Smith" matching "John A. Smith" in DB.
+      // Use pre-computed indices to avoid double-evaluation of idx++ in templates.
+      const nameParts = name.split(/\s+/).filter(Boolean);
+      if (nameParts.length >= 2) {
+        const firstIdx = idx++;
+        const lastIdx = idx++;
+        whereClauses.push(
+          `(LOWER(r.guest_full_name) LIKE LOWER($${firstIdx}) AND LOWER(r.guest_full_name) LIKE LOWER($${lastIdx}))`
+        );
+        values.push(`%${nameParts[0]}%`, `%${nameParts[nameParts.length - 1]}%`);
+      }
 
       const sql = `
         SELECT
@@ -118,13 +134,24 @@ export const ClientDbService = {
         FROM pms.reservation r
         LEFT JOIN pms.listing l ON l.id = r.listing_id
         LEFT JOIN pms.guest   g ON g.id = r.guest_id
-        WHERE r.reservation_status_code NOT IN ('cancelled', 'declined')
+        WHERE r.reservation_status_code NOT IN ('cancelled', 'canceled', 'declined', 'expired')
           AND (${whereClauses.join(' OR ')})
-        ORDER BY r.check_in DESC
+        ORDER BY
+          -- Prefer current stays, then upcoming, then most-recent past
+          CASE
+            WHEN r.check_in <= NOW() AND r.check_out >= NOW() THEN 0
+            WHEN r.check_in > NOW() THEN 1
+            ELSE 2
+          END,
+          ABS(EXTRACT(EPOCH FROM (r.check_in - NOW())))
         LIMIT 1
       `;
 
-      const result = await pool().query(sql, values);
+      const result = await client.query(sql, values);
+      logger.debug(
+        { found: result.rows.length > 0, conditions: whereClauses.length },
+        'findReservation complete'
+      );
       if (result.rows.length === 0) return null;
 
       const row = result.rows[0];
@@ -150,8 +177,10 @@ export const ClientDbService = {
         status: row.reservation_status_code,
       };
     } catch (err) {
-      logger.error(err, 'findReservation failed');
+      logger.error({ err }, 'findReservation failed');
       throw err;
+    } finally {
+      client.release();
     }
   },
 
@@ -304,9 +333,11 @@ export const ClientDbService = {
         values.push(`%${params.city}%`);
       }
       if (params.state) {
-        conditions.push(`(LOWER(l.state) LIKE LOWER($${idx++}) OR LOWER(l.state) = LOWER($${idx++}))`);
+        // Pre-compute indices — two idx++ in one template literal is unreliable.
+        const likeIdx = idx++;
+        const eqIdx = idx++;
+        conditions.push(`(LOWER(l.state) LIKE LOWER($${likeIdx}) OR LOWER(l.state) = LOWER($${eqIdx}))`);
         values.push(`%${params.state}%`, params.state);
-        idx--; // correct for the double push
       }
       if (params.minBedrooms) {
         conditions.push(`l.bedrooms >= $${idx++}`);
@@ -317,9 +348,10 @@ export const ClientDbService = {
         values.push(params.maxGuests);
       }
       if (params.query) {
-        conditions.push(`(LOWER(l.title) LIKE LOWER($${idx++}) OR LOWER(l.full_address) LIKE LOWER($${idx++}))`);
+        const titleIdx = idx++;
+        const addrIdx = idx++;
+        conditions.push(`(LOWER(l.title) LIKE LOWER($${titleIdx}) OR LOWER(l.full_address) LIKE LOWER($${addrIdx}))`);
         values.push(`%${params.query}%`, `%${params.query}%`);
-        idx--;
       }
 
       const result = await pool().query(`
