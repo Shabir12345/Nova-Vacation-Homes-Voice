@@ -18,28 +18,32 @@ CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 
 -- Call logs: one row per call
 CREATE TABLE IF NOT EXISTS call_logs (
-  id                 SERIAL PRIMARY KEY,
-  call_id            VARCHAR(255) UNIQUE NOT NULL,
-  phone_number       VARCHAR(20),
-  language           VARCHAR(5) DEFAULT 'en',
-  top_intent         VARCHAR(50),
-  sub_intent         VARCHAR(50),
-  active_agent       VARCHAR(20),         -- master | reservation | service
-  customer_id        INT REFERENCES customers(id),
-  intake_id          INT,                 -- FK to intake_messages.id (set after logging)
-  service_request_id INT,                 -- FK to service_requests.id (set after logging)
-  duration_seconds   INT,
-  escalated          BOOLEAN DEFAULT FALSE,
-  escalation_reason  VARCHAR(255),
-  transcript         TEXT,
-  error_message      TEXT,
-  created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  ended_at           TIMESTAMP
+  id                SERIAL PRIMARY KEY,
+  call_id           VARCHAR(255) UNIQUE NOT NULL,
+  phone_number      VARCHAR(20),
+  incoming          BOOLEAN DEFAULT TRUE,
+  intent            VARCHAR(100),
+  customer_id       INT REFERENCES customers(id),
+  booking_id        INT,
+  duration_seconds  INT,
+  escalated         BOOLEAN DEFAULT FALSE,
+  escalation_reason VARCHAR(255),
+  properties_shown  JSONB,
+  transcript        TEXT,
+  error_message     TEXT,
+  created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  ended_at          TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_call_logs_phone    ON call_logs(phone_number);
-CREATE INDEX IF NOT EXISTS idx_call_logs_intent   ON call_logs(top_intent);
-CREATE INDEX IF NOT EXISTS idx_call_logs_created  ON call_logs(created_at);
+-- Idempotent column additions for databases created before this schema version
+ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS incoming         BOOLEAN DEFAULT TRUE;
+ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS intent           VARCHAR(100);
+ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS booking_id       INT;
+ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS properties_shown JSONB;
+
+CREATE INDEX IF NOT EXISTS idx_call_logs_phone   ON call_logs(phone_number);
+CREATE INDEX IF NOT EXISTS idx_call_logs_intent  ON call_logs(intent);
+CREATE INDEX IF NOT EXISTS idx_call_logs_created ON call_logs(created_at);
 
 -- Agent interactions: every message + tool call in a call
 CREATE TABLE IF NOT EXISTS agent_interactions (
