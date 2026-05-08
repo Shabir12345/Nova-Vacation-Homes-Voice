@@ -1,6 +1,6 @@
 import { config } from './config'; // validates env vars first — fails fast
 import { logger } from './utils/logger';
-import { initializeDatabase, closeDatabase } from './db/connection';
+import { initializeDatabase, runMigrations, closeDatabase } from './db/connection';
 import { initializeClientDb } from './services/client-db.service';
 import { initializeSessionStore, closeSessionStore } from './utils/session-store';
 import { AgentOrchestrator } from './agent';
@@ -12,6 +12,7 @@ async function bootstrap(): Promise<void> {
   logger.info({ env: config.NODE_ENV, port: config.PORT }, 'Starting Nova Vacation Homes Voice Agent');
 
   await initializeDatabase();
+  await runMigrations();
   logger.info('Our database ready');
 
   await initializeSessionStore();
