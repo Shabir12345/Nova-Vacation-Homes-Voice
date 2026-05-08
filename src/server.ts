@@ -161,4 +161,4 @@ const escapeXml = (str: string): string =>
 // "VOICE_ID-SPEED_STABILITY_SIMILARITY". See:
 // https://www.twilio.com/docs/voice/conversationrelay/voice-configuration
 const tunedVoice = (voiceId: string): string =>
-  `${voiceId}-${config.CR_VOICE_SPEED}_${config.CR_VOICE_STABILITY}_${config.CR_VOICE_SIMILARITY}`;
+  `${voiceId}-${config.CR_VOICE_SPEED.toFixed(1)}_${config.CR_VOICE_STABILITY.toFixed(2)}_${config.CR_VOICE_SIMILARITY.toFixed(2)}`;
