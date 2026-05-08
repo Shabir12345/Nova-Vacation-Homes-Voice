@@ -1,5 +1,7 @@
-// Test UI server — browser-based agent testing without Twilio or a database.
-// Only ANTHROPIC_API_KEY is required.
+// Test UI server — browser-based agent testing without Twilio or a phone.
+// Requires: ANTHROPIC_API_KEY (mandatory)
+//           DEEPGRAM_API_KEY  (for real STT — falls back to browser speech if missing)
+//           ELEVENLABS_API_KEY (for real TTS — falls back to browser synth if missing)
 //
 // Usage:
 //   npm run test:ui
@@ -8,15 +10,21 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import http from 'http';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { AgentOrchestrator } from '../agent';
 import { forceMemoryMode } from '../utils/session-store';
+import { attachTestVoiceWS } from './voice-ws';
 import { logger } from '../utils/logger';
 
 const app = express();
 app.use(express.json());
+
+// Serve the test UI static files from /public
 app.use(express.static(path.join(__dirname, '../../public')));
+
+// ── REST fallback endpoints (used by text-only mode) ──────────────────────────
 
 // POST /api/start — create a new session, return sessionId + opening greeting
 app.post('/api/start', async (_req: Request, res: Response) => {
@@ -43,11 +51,11 @@ app.post('/api/message', async (req: Request, res: Response) => {
   try {
     const result = await AgentOrchestrator.handleMessage(sessionId, message);
     res.json({
-      response:   result.agentResponse,
-      state:      result.context.state,
-      escalated:  result.escalated,
-      topIntent:  result.context.topIntent,
-      language:   result.context.language,
+      response:  result.agentResponse,
+      state:     result.context.state,
+      escalated: result.escalated,
+      topIntent: result.context.topIntent,
+      language:  result.context.language,
     });
   } catch (err) {
     logger.error(err, 'Test message failed');
@@ -64,15 +72,31 @@ app.post('/api/end', async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// ── Boot ───────────────────────────────────────────────────────────────────────
+
 const PORT = parseInt(process.env.TEST_UI_PORT ?? '3001', 10);
 
 (async () => {
-  forceMemoryMode(); // skip Redis entirely — sessions live in-memory for this test server
-  app.listen(PORT, () => {
-    console.log('\n' + '─'.repeat(42));
-    console.log('  Nova Voice Agent  ·  Browser Test UI');
+  forceMemoryMode(); // skip Redis — sessions live in-memory for the test server
+
+  // Create a plain HTTP server so we can attach WebSocket upgrades alongside HTTP
+  const httpServer = http.createServer(app);
+
+  // Mount the voice WebSocket at ws://localhost:PORT/test/voice
+  attachTestVoiceWS(httpServer);
+
+  httpServer.listen(PORT, () => {
+    const hasDG     = !!process.env.DEEPGRAM_API_KEY;
+    const hasEleven = !!process.env.ELEVENLABS_API_KEY;
+
+    console.log('\n' + '─'.repeat(52));
+    console.log('  Nova Voice Agent  ·  Browser Test Lab');
     console.log(`  http://localhost:${PORT}`);
-    console.log('─'.repeat(42) + '\n');
+    console.log('─'.repeat(52));
+    console.log(`  STT  : ${hasDG     ? '✓ Deepgram (real)'      : '⚠ Browser Web Speech (set DEEPGRAM_API_KEY)'}`);
+    console.log(`  TTS  : ${hasEleven ? '✓ ElevenLabs (real)'    : '⚠ Browser synth (set ELEVENLABS_API_KEY)'}`);
+    console.log(`  Agent: ✓ Claude (ANTHROPIC_API_KEY present)`);
+    console.log('─'.repeat(52) + '\n');
   });
 })().catch((err) => {
   console.error('Test server failed to start:', err);
