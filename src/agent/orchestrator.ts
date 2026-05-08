@@ -2,7 +2,7 @@
 // Sessions are stored in Redis so state survives restarts and scales horizontally.
 
 import { ConversationContext, StateMachine } from './state-machine';
-import { processTurn, TurnResult } from './decision-engine';
+import { processTurn, processTurnStream, StreamEvent, TurnResult } from './decision-engine';
 import { SessionStore } from '../utils/session-store';
 import { CallLogService } from '../services/calllog.service';
 import { getGreeting } from './prompts';
@@ -47,6 +47,34 @@ export const AgentOrchestrator = {
       const result = await processTurn(ctx, userMessage);
       await SessionStore.set(callId, result.context);
       return result;
+    } finally {
+      inFlightCalls.delete(callId);
+    }
+  },
+
+  // Streaming variant for ConversationRelay — yields tokens as Claude generates them.
+  // The caller is responsible for forwarding tokens to Twilio. signal lets us abort
+  // mid-generation when the caller barges in.
+  handleMessageStream: async function* (
+    callId: string,
+    userMessage: string,
+    signal?: AbortSignal
+  ): AsyncGenerator<StreamEvent, void, void> {
+    const ctx = await SessionStore.get(callId);
+    if (!ctx) throw new Error(`No session found for call ${callId}`);
+
+    if (ctx.state === 'CLOSED' || ctx.state === 'ESCALATED') return;
+
+    inFlightCalls.add(callId);
+    try {
+      const gen = processTurnStream(ctx, userMessage, signal);
+      let nextResult: IteratorResult<StreamEvent, { context: ConversationContext; fullText: string; escalated: boolean }>;
+      do {
+        nextResult = await gen.next();
+        if (!nextResult.done) yield nextResult.value;
+      } while (!nextResult.done);
+
+      await SessionStore.set(callId, nextResult.value.context);
     } finally {
       inFlightCalls.delete(callId);
     }

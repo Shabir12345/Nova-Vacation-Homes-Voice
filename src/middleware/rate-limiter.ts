@@ -3,7 +3,6 @@
 // Configured via CALLS_PER_MINUTE_PER_NUMBER in .env.
 
 import { Request, Response, NextFunction } from 'express';
-import { createClient } from 'redis';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 

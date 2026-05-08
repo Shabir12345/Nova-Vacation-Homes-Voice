@@ -66,8 +66,6 @@ export const CustomerService = {
         postalCode: params.postalCode,
         totalBookings: 0,
         preferredRegion: params.preferredRegion,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       });
 
       logger.info(

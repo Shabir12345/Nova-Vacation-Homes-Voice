@@ -9,9 +9,9 @@
     "es2020": true
   },
   "rules": {
-    "@typescript-eslint/explicit-function-return-types": "warn",
     "@typescript-eslint/no-explicit-any": "error",
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
-    "no-console": "off"
+    "no-console": "off",
+    "prefer-const": "error"
   }
 }

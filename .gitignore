@@ -47,3 +47,6 @@ scripts/test-client-queries.js
 
 # OS
 Thumbs.db
+
+# Claude Code AI assistant files
+.claude/

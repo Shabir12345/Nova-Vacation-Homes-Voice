@@ -3,6 +3,7 @@
 
 import { getPool } from '../db/connection';
 import { logger } from '../utils/logger';
+import { NotificationsService } from './notifications.service';
 
 export const IntakeService = {
   logBusinessInquiry: async (params: {
@@ -21,8 +22,16 @@ export const IntakeService = {
       [params.callId ?? null, params.callerName, params.callerPhone,
        params.callerEmail ?? null, params.inquiryType, params.reason]
     );
-    logger.info({ id: result.rows[0].id, type: 'business_inquiry' }, 'Intake logged');
-    return result.rows[0].id;
+    const id: number = result.rows[0].id;
+    logger.info({ id, type: 'business_inquiry' }, 'Intake logged');
+    NotificationsService.newBusinessInquiry({
+      id,
+      callerName: params.callerName,
+      callerPhone: params.callerPhone,
+      inquiryType: params.inquiryType,
+      reason: params.reason,
+    }).catch(() => undefined);
+    return id;
   },
 
   logReservationInterest: async (params: {
@@ -51,8 +60,19 @@ export const IntakeService = {
         params.budget ?? null, params.specialRequests ?? null,
       ]
     );
-    logger.info({ id: result.rows[0].id, type: 'reservation_interest' }, 'Intake logged');
-    return result.rows[0].id;
+    const id: number = result.rows[0].id;
+    logger.info({ id, type: 'reservation_interest' }, 'Intake logged');
+    NotificationsService.newReservationInterest({
+      id,
+      callerName: params.callerName,
+      callerPhone: params.callerPhone,
+      destination: params.desiredDestination,
+      checkIn: params.checkInDate,
+      checkOut: params.checkOutDate,
+      guestCount: params.guestCount,
+      budget: params.budget,
+    }).catch(() => undefined);
+    return id;
   },
 
   logExtensionRequest: async (params: {
@@ -75,8 +95,15 @@ export const IntakeService = {
         params.notes ?? null,
       ]
     );
-    logger.info({ id: result.rows[0].id, reservationId: params.reservationId }, 'Extension request logged');
-    return result.rows[0].id;
+    const id: number = result.rows[0].id;
+    logger.info({ id, reservationId: params.reservationId }, 'Extension request logged');
+    NotificationsService.newExtensionRequest({
+      id,
+      reservationId: params.reservationId,
+      currentCheckout: params.currentCheckout,
+      requestedCheckout: params.requestedCheckout,
+    }).catch(() => undefined);
+    return id;
   },
 
   logCleaningRequest: async (params: {
@@ -93,8 +120,15 @@ export const IntakeService = {
       [params.callId ?? null, params.reservationId,
        params.preferredTime ?? null, params.notes ?? null]
     );
-    logger.info({ id: result.rows[0].id, type: 'cleaning' }, 'Service request logged');
-    return result.rows[0].id;
+    const id: number = result.rows[0].id;
+    logger.info({ id, type: 'cleaning' }, 'Service request logged');
+    NotificationsService.newCleaningRequest({
+      id,
+      reservationId: params.reservationId,
+      preferredTime: params.preferredTime,
+      notes: params.notes,
+    }).catch(() => undefined);
+    return id;
   },
 
   logMaintenanceRequest: async (params: {
@@ -112,8 +146,16 @@ export const IntakeService = {
       [params.callId ?? null, params.reservationId,
        params.maintenanceType, params.description, params.urgency]
     );
-    logger.info({ id: result.rows[0].id, type: 'maintenance', urgency: params.urgency }, 'Service request logged');
-    return result.rows[0].id;
+    const id: number = result.rows[0].id;
+    logger.info({ id, type: 'maintenance', urgency: params.urgency }, 'Service request logged');
+    NotificationsService.newMaintenanceRequest({
+      id,
+      reservationId: params.reservationId,
+      maintenanceType: params.maintenanceType,
+      description: params.description,
+      urgency: params.urgency,
+    }).catch(() => undefined);
+    return id;
   },
 
   logServiceRequest: async (params: {
@@ -130,7 +172,14 @@ export const IntakeService = {
       [params.callId ?? null, params.reservationId,
        params.serviceType, params.details ?? null]
     );
-    logger.info({ id: result.rows[0].id, serviceType: params.serviceType }, 'Service request logged');
-    return result.rows[0].id;
+    const id: number = result.rows[0].id;
+    logger.info({ id, serviceType: params.serviceType }, 'Service request logged');
+    NotificationsService.newServiceRequest({
+      id,
+      reservationId: params.reservationId,
+      serviceType: params.serviceType,
+      details: params.details,
+    }).catch(() => undefined);
+    return id;
   },
 };

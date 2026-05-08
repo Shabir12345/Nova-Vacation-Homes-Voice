@@ -1,0 +1,59 @@
+services:
+  - type: web
+    name: nova-voice-agent
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: LOG_LEVEL
+        value: info
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CLIENT_DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nova-session-store
+          property: connectionString
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+      - key: PUBLIC_WSS_URL
+        sync: false
+      - key: SLACK_WEBHOOK_URL
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: ENABLE_TWILIO_VALIDATION
+        value: "true"
+      - key: ENABLE_RATE_LIMITING
+        value: "true"
+      - key: ENABLE_PROMPT_CACHING
+        value: "true"
+      - key: CR_TTS_PROVIDER
+        value: ElevenLabs
+      - key: CR_VOICE_EN
+        value: FGY2WhTYpPnrIDTdsKH5
+      - key: CR_VOICE_ES
+        value: Nh2zY9kknu6z4pZy6FhD
+      - key: CR_VOICE_PT
+        value: cyD08lEy76q03ER1jZ7y
+      - key: CR_TRANSCRIPTION_PROVIDER
+        value: Deepgram
+      - key: CR_SPEECH_MODEL
+        value: nova-3-general
+
+  - type: redis
+    name: nova-session-store
+    plan: starter
+    maxmemoryPolicy: allkeys-lru

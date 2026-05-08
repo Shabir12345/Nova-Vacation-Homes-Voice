@@ -14,6 +14,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "test:ui": "ts-node --transpile-only src/test-ui/server.ts",
     "simulate": "ts-node --transpile-only src/agent/__tests__/call-simulator.ts",
     "simulate:scenario": "ts-node --transpile-only src/agent/__tests__/call-simulator.ts",
     "db:migrate": "ts-node --transpile-only scripts/db-migrate.ts",

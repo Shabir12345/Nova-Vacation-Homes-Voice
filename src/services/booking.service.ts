@@ -17,7 +17,6 @@ export interface CreateBookingParams {
 }
 
 const generateConfirmationCode = (): string => {
-  const timestamp = Date.now();
   const random = Math.floor(Math.random() * 10000);
   return `NVH-${new Date().getFullYear()}-${random}`;
 };

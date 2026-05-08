@@ -366,10 +366,12 @@ export const executeTool = async (toolName: string, input: unknown): Promise<Too
       }
 
       case 'lookup_property_info': {
-        const info = await ClientDbService.searchProperties(
-          params['query'] as string,
-          params['region'] as string | undefined
-        );
+        // Region is a free-form hint (city, state, or destination name) —
+        // fold it into the query so it can match title/address text.
+        const query = params['query'] as string;
+        const region = params['region'] as string | undefined;
+        const combined = region ? `${query} ${region}`.trim() : query;
+        const info = await ClientDbService.searchListings({ query: combined });
         return { success: true, data: info };
       }
 
@@ -391,23 +393,23 @@ export const executeTool = async (toolName: string, input: unknown): Promise<Too
       // ── Reservation Agent Tools ─────────────────────────────────────────
 
       case 'get_reservation_general_info': {
-        const info = await ClientDbService.getReservationInfo(
-          params['reservation_id'] as string,
-          params['question'] as string
+        // The agent picks the relevant fields from the full record using the question.
+        const info = await ClientDbService.getReservationDetails(
+          params['reservation_id'] as string
         );
-        return { success: true, data: info };
+        return { success: true, data: info ?? { found: false } };
       }
 
       case 'get_listing_information': {
+        // Returns the full listing record — agent picks fields relevant to the question.
         const listing = await ClientDbService.getListingInfo(
-          params['reservation_id'] as string,
-          params['question'] as string
+          params['reservation_id'] as string
         );
         return { success: true, data: listing };
       }
 
       case 'get_checkin_checkout_info': {
-        const info = await ClientDbService.getCheckinCheckoutInfo(params['reservation_id'] as string);
+        const info = await ClientDbService.getCheckinInfo(params['reservation_id'] as string);
         return { success: true, data: info };
       }
 

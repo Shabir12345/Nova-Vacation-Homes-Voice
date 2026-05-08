@@ -67,6 +67,12 @@ const buildSystemPrompt = (ctx: ConversationContext): string => {
   }
 };
 
+// Anthropic's cache_control is a valid SDK field but not yet reflected in all
+// TypeScript overloads — cast via unknown until the SDK types catch up.
+type CachableTextBlock = Omit<Anthropic.TextBlockParam, 'cache_control'> & {
+  cache_control?: { type: 'ephemeral' };
+};
+
 // Build system prompt with cache_control so Claude caches it for 5 minutes.
 // The stable portion (role, rules) is cached; dynamic context appended uncached.
 const buildCachedSystemBlocks = (
@@ -84,22 +90,22 @@ const buildCachedSystemBlocks = (
   const splitIndex = fullPrompt.indexOf(splitMarker);
 
   if (splitIndex === -1) {
-    return [{
+    return [({
       type: 'text',
       text: fullPrompt,
       cache_control: { type: 'ephemeral' },
-    }];
+    } as CachableTextBlock) as Anthropic.TextBlockParam];
   }
 
   return [
-    {
+    ({
       type: 'text',
       text: fullPrompt.slice(0, splitIndex),
-      cache_control: { type: 'ephemeral' }, // cached portion
-    },
+      cache_control: { type: 'ephemeral' },
+    } as CachableTextBlock) as Anthropic.TextBlockParam,
     {
       type: 'text',
-      text: fullPrompt.slice(splitIndex), // uncached dynamic tail
+      text: fullPrompt.slice(splitIndex),
     },
   ];
 };
@@ -177,7 +183,7 @@ const withRetry = async <T>(
       lastError = err;
       const isRateLimitOrOverload =
         err instanceof Anthropic.RateLimitError ||
-        err instanceof Anthropic.APIStatusError;
+        err instanceof Anthropic.APIError;
 
       if (!isRateLimitOrOverload || attempt === maxAttempts) throw err;
 
@@ -188,6 +194,136 @@ const withRetry = async <T>(
   }
   throw lastError;
 };
+
+// ─── Streaming turn processor (for real-time voice) ──────────────────────────
+// Yields text deltas as Claude generates them. Tool calls are still resolved
+// in an agentic loop, but final-answer tokens stream live. This cuts perceived
+// latency by ~400-700ms on a typical reply because TTS starts speaking the
+// first words while Claude is still generating the rest.
+
+export interface StreamEvent {
+  type: 'token' | 'tool_start' | 'tool_done' | 'final';
+  text?: string;       // for 'token' — incremental text delta
+  toolName?: string;   // for tool_start / tool_done
+}
+
+export interface StreamTurnResult {
+  context: ConversationContext;
+  fullText: string;
+  escalated: boolean;
+}
+
+export async function* processTurnStream(
+  context: ConversationContext,
+  userMessage: string,
+  signal?: AbortSignal
+): AsyncGenerator<StreamEvent, StreamTurnResult, void> {
+  let ctx = StateMachine.addMessage(context, 'user', userMessage);
+
+  CallLogService.logInteraction({ callId: ctx.callId, role: 'user', message: userMessage })
+    .catch((err) => logger.warn(err, 'Failed to log user message'));
+
+  let currentMessages: Anthropic.MessageParam[] = ctx.messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  let fullText = '';
+  let continueLoop = true;
+
+  while (continueLoop) {
+    if (signal?.aborted) break;
+
+    const systemBlocks = buildCachedSystemBlocks(ctx);
+
+    const stream = anthropic.messages.stream({
+      model: config.CLAUDE_MODEL,
+      max_tokens: 1024,
+      system: systemBlocks,
+      messages: currentMessages,
+      tools: getToolsForAgent(ctx),
+    });
+
+    const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
+
+    for await (const event of stream) {
+      if (signal?.aborted) {
+        stream.controller.abort();
+        break;
+      }
+
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        const delta = event.delta.text;
+        fullText += delta;
+        yield { type: 'token', text: delta };
+      }
+    }
+
+    const finalMessage = await stream.finalMessage().catch((err) => {
+      logger.warn(err, 'Stream finalMessage failed');
+      return null;
+    });
+    if (!finalMessage) {
+      const fallback = "I'm sorry, I had trouble processing that. Could you say it again?";
+      fullText += fallback;
+      yield { type: 'token', text: fallback };
+      break;
+    }
+
+    for (const block of finalMessage.content) {
+      if (block.type === 'tool_use') toolUseBlocks.push(block);
+    }
+
+    if (finalMessage.stop_reason === 'tool_use' && toolUseBlocks.length > 0) {
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+      for (const toolUse of toolUseBlocks) {
+        yield { type: 'tool_start', toolName: toolUse.name };
+
+        const result = await executeTool(toolUse.name, toolUse.input);
+
+        CallLogService.logInteraction({
+          callId: ctx.callId,
+          role: 'assistant',
+          message: `[Tool: ${toolUse.name}]`,
+          toolCalled: toolUse.name,
+          toolParams: toolUse.input as Record<string, unknown>,
+          toolResult: result as unknown as Record<string, unknown>,
+        }).catch((err) => logger.warn(err, 'Failed to log tool call'));
+
+        if (result.success && result.data) {
+          ctx = applyToolSideEffects(ctx, toolUse.name, toolUse.input as Record<string, unknown>, result.data);
+        }
+
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: result.success ? JSON.stringify(result.data) : JSON.stringify({ error: result.error }),
+          is_error: !result.success,
+        });
+
+        yield { type: 'tool_done', toolName: toolUse.name };
+      }
+
+      currentMessages = [
+        ...currentMessages,
+        { role: 'assistant', content: finalMessage.content },
+        { role: 'user',      content: toolResults },
+      ];
+    } else {
+      continueLoop = false;
+    }
+  }
+
+  if (fullText) {
+    ctx = StateMachine.addMessage(ctx, 'assistant', fullText);
+    CallLogService.logInteraction({ callId: ctx.callId, role: 'assistant', message: fullText })
+      .catch((err) => logger.warn(err, 'Failed to log assistant message'));
+  }
+
+  yield { type: 'final' };
+  return { context: ctx, fullText, escalated: ctx.state === 'ESCALATED' };
+}
 
 // ─── Core turn processor ──────────────────────────────────────────────────────
 
@@ -207,7 +343,6 @@ export const processTurn = async (
   }));
 
   let agentResponse = '';
-  let escalated = false;
   let cacheHit = false;
   let currentMessages = messages;
 
@@ -227,8 +362,8 @@ export const processTurn = async (
     );
 
     // Detect prompt cache hit from usage headers
-    const usage = response.usage as Record<string, number>;
-    if (usage['cache_read_input_tokens'] > 0) cacheHit = true;
+    const usage = response.usage as unknown as Record<string, number>;
+    if ((usage['cache_read_input_tokens'] ?? 0) > 0) cacheHit = true;
 
     logger.debug({
       stopReason: response.stop_reason,
@@ -256,7 +391,7 @@ export const processTurn = async (
           message: `[Tool: ${toolUse.name}]`,
           toolCalled: toolUse.name,
           toolParams: toolUse.input as Record<string, unknown>,
-          toolResult: result as Record<string, unknown>,
+          toolResult: result as unknown as Record<string, unknown>,
         }).catch((err) => logger.warn(err, 'Failed to log tool call'));
 
         if (result.success && result.data) {
@@ -287,5 +422,5 @@ export const processTurn = async (
       .catch((err) => logger.warn(err, 'Failed to log assistant message'));
   }
 
-  return { context: ctx, agentResponse, escalated, cacheHit };
+  return { context: ctx, agentResponse, escalated: ctx.state === 'ESCALATED', cacheHit };
 };

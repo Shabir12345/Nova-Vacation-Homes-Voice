@@ -5,6 +5,7 @@ import { initializeClientDb } from './services/client-db.service';
 import { initializeSessionStore, closeSessionStore } from './utils/session-store';
 import { AgentOrchestrator } from './agent';
 import { createServer } from './server';
+import { attachConversationRelay } from './voice/conversation-relay';
 import http from 'http';
 
 async function bootstrap(): Promise<void> {
@@ -22,6 +23,9 @@ async function bootstrap(): Promise<void> {
   const app = createServer();
   const server = http.createServer(app);
 
+  // Mount the ConversationRelay WebSocket on the same HTTP server at /voice/relay
+  const wss = attachConversationRelay(server);
+
   await new Promise<void>((resolve) => {
     server.listen(config.PORT, resolve);
   });
@@ -34,6 +38,7 @@ async function bootstrap(): Promise<void> {
     logger.info({ signal }, 'Shutdown signal received');
 
     // Stop accepting new connections
+    wss.close(() => logger.info('WebSocket server closed'));
     server.close(() => logger.info('HTTP server closed'));
 
     // Drain in-flight calls (up to 30s)

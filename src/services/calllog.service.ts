@@ -34,7 +34,6 @@ export const CallLogService = {
         bookingId: params.bookingId,
         escalated: false,
         durationSeconds: 0,
-        createdAt: new Date(),
       });
     } catch (error) {
       logger.error(error, 'Failed to create call log');

@@ -5,6 +5,7 @@ import { AgentOrchestrator } from './agent';
 import { twilioWebhookAuth } from './middleware/twilio-auth';
 import { voiceCallRateLimiter } from './middleware/rate-limiter';
 import { Metrics } from './middleware/metrics';
+import { notFoundHandler, globalErrorHandler } from './middleware/error-handler';
 import { AnalyticsService } from './services/analytics.service';
 import { config } from './config';
 import { logger } from './utils/logger';
@@ -52,7 +53,11 @@ export const createServer = (): express.Application => {
   });
 
   // ── Twilio: Incoming call ─────────────────────────────────────────────────
-  // Rate limit → signature auth → handler
+  // Rate limit → signature auth → handler.
+  // Returns TwiML that hands the call to ConversationRelay — Twilio handles
+  // STT (Deepgram Nova-3), TTS (ElevenLabs), turn detection, and barge-in.
+  // Our WebSocket at /voice/relay only receives transcribed prompts and
+  // streams Claude tokens back as text.
   app.post(
     '/voice/incoming',
     voiceCallRateLimiter,
@@ -67,19 +72,35 @@ export const createServer = (): express.Application => {
         await AgentOrchestrator.startSession(callSid, from);
         logger.info({ callSid, from }, 'Incoming call accepted');
 
-        // Get the opening greeting line to embed in TwiML
         const greeting = await AgentOrchestrator.getGreeting(callSid);
+        const wsUrl = config.PUBLIC_WSS_URL ?? `wss://${req.hostname}/voice/relay`;
 
-        // TwiML: speak the greeting, then open the bidirectional audio stream
-        const wsUrl = config.WEBSOCKET_URL ?? `wss://${req.hostname}/voice/stream`;
+        const voiceEn = tunedVoice(config.CR_VOICE_EN);
+        const voiceEs = tunedVoice(config.CR_VOICE_ES);
+        const voicePt = tunedVoice(config.CR_VOICE_PT);
 
         res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna" language="en-US">${escapeXml(greeting)}</Say>
   <Connect>
-    <Stream url="${wsUrl}">
+    <ConversationRelay
+      url="${wsUrl}"
+      welcomeGreeting="${escapeXml(greeting)}"
+      welcomeGreetingInterruptible="speech"
+      ttsProvider="${config.CR_TTS_PROVIDER}"
+      voice="${voiceEn}"
+      transcriptionProvider="${config.CR_TRANSCRIPTION_PROVIDER}"
+      speechModel="${config.CR_SPEECH_MODEL}"
+      language="en-US"
+      interruptible="any"
+      interruptSensitivity="${config.CR_INTERRUPT_SENSITIVITY}"
+      eotThreshold="${config.CR_EOT_THRESHOLD}"
+      partialPrompts="false"
+      reportInputDuringAgentSpeech="speech"
+      elevenlabsTextNormalization="auto">
+      <Language code="es-US" voice="${voiceEs}" />
+      <Language code="pt-BR" voice="${voicePt}" />
       <Parameter name="callSid" value="${callSid}" />
-    </Stream>
+    </ConversationRelay>
   </Connect>
 </Response>`);
       } catch (err) {
@@ -121,14 +142,8 @@ export const createServer = (): express.Application => {
   );
 
   // ── 404 & global error handler ────────────────────────────────────────────
-  app.use((_req: Request, res: Response) => {
-    res.status(404).json({ error: 'Not found' });
-  });
-
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    logger.error(err, 'Unhandled server error');
-    res.status(500).json({ error: 'Internal server error' });
-  });
+  app.use(notFoundHandler);
+  app.use(globalErrorHandler);
 
   return app;
 };
@@ -141,3 +156,9 @@ const escapeXml = (str: string): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+
+// ElevenLabs voice tuning suffix — Twilio ConversationRelay format:
+// "VOICE_ID-SPEED_STABILITY_SIMILARITY". See:
+// https://www.twilio.com/docs/voice/conversationrelay/voice-configuration
+const tunedVoice = (voiceId: string): string =>
+  `${voiceId}-${config.CR_VOICE_SPEED}_${config.CR_VOICE_STABILITY}_${config.CR_VOICE_SIMILARITY}`;

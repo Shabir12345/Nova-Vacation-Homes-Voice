@@ -371,6 +371,7 @@ export const ClientDbService = {
         INSERT INTO pms.call_log
           (id, reservation_id, guest_name, phone, call_summary, transcript,
            call_catergory, check_in, check_out, created_at, updated_at)
+           -- note: 'call_catergory' is a typo in the client's PMS schema; do not rename
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
       `, [generateId(),
         params.reservationId,

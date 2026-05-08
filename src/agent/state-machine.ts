@@ -1,6 +1,9 @@
 // Conversation state machine — tracks call flow across all 4 branches
 // Matches the flowchart: Business Inquiry, General Info, Future Guest, Reservation (existing)
 
+import { config } from '../config';
+import { logger } from '../utils/logger';
+
 export type CallState =
   // Universal
   | 'GREETING'
@@ -131,15 +134,14 @@ const VALID_TRANSITIONS: Record<CallState, CallState[]> = {
 };
 
 const isBusinessHoursNow = (): boolean => {
-  // Business hours: 9AM–9PM in Eastern Time (adjust timezone as needed)
   const now = new Date();
-  const ET = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
+  const formatted = new Intl.DateTimeFormat('en-US', {
+    timeZone: config.BUSINESS_TIMEZONE,
     hour: 'numeric',
     hour12: false,
   }).format(now);
-  const hour = parseInt(ET, 10);
-  return hour >= 9 && hour < 21;
+  const hour = parseInt(formatted, 10);
+  return hour >= config.BUSINESS_HOURS_OPEN && hour < config.BUSINESS_HOURS_CLOSE;
 };
 
 const emptyReservation = (): ReservationDetails => ({
@@ -197,7 +199,7 @@ export const StateMachine = {
   transition: (ctx: ConversationContext, newState: CallState): ConversationContext => {
     const allowed = VALID_TRANSITIONS[ctx.state];
     if (!allowed.includes(newState)) {
-      console.warn(`Unexpected state transition: ${ctx.state} → ${newState}`);
+      logger.warn({ from: ctx.state, to: newState }, 'Unexpected state transition');
     }
     return { ...ctx, state: newState };
   },

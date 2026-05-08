@@ -16,23 +16,50 @@ let usingFallback = false;
 
 export const initializeSessionStore = async (): Promise<void> => {
   try {
-    redisClient = createClient({ url: config.REDIS_URL }) as RedisClientType;
+    redisClient = createClient({
+      url: config.REDIS_URL,
+      socket: {
+        reconnectStrategy: (retries) => {
+          // In development, fail fast so we use the in-memory fallback
+          if (config.NODE_ENV === 'development' && retries > 0) {
+            return new Error('Redis connection failed');
+          }
+          // Otherwise retry with exponential backoff (capped at 3s)
+          return Math.min(retries * 100, 3000);
+        },
+        connectTimeout: 2000,
+      }
+    }) as RedisClientType;
 
     redisClient.on('error', (err) => {
-      logger.error(err, 'Redis error');
+      // Only log if we aren't using the fallback already
+      if (!usingFallback) {
+        logger.error(err, 'Redis error');
+      }
     });
 
     redisClient.on('reconnecting', () => {
-      logger.warn('Redis reconnecting...');
+      if (!usingFallback) {
+        logger.warn('Redis reconnecting...');
+      }
     });
 
     await redisClient.connect();
     logger.info('Redis session store connected');
   } catch (err) {
+    if (config.NODE_ENV === 'production') {
+      throw new Error(`Redis connection failed in production — cannot start without session store: ${err}`);
+    }
     logger.warn(err, 'Redis unavailable — falling back to in-memory session store (not suitable for production)');
     usingFallback = true;
     redisClient = null;
   }
+};
+
+// Force in-memory mode immediately — used by the test UI server to skip Redis entirely
+export const forceMemoryMode = (): void => {
+  usingFallback = true;
+  redisClient = null;
 };
 
 export const closeSessionStore = async (): Promise<void> => {
