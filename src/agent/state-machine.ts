@@ -66,8 +66,10 @@ export interface ReservationDetails {
   reservationId: string | null;
   guestName: string | null;
   propertyName: string | null;
+  propertyAddress: string | null;
   checkInDate: string | null;
   checkOutDate: string | null;
+  keyCode: string | null;
   confirmed: boolean;
 }
 
@@ -151,8 +153,10 @@ const emptyReservation = (): ReservationDetails => ({
   reservationId: null,
   guestName: null,
   propertyName: null,
+  propertyAddress: null,
   checkInDate: null,
   checkOutDate: null,
+  keyCode: null,
   confirmed: false,
 });
 

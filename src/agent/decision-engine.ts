@@ -55,8 +55,11 @@ const buildSystemPrompt = (ctx: ConversationContext): string => {
   });
 
   const reservationBlock = ctx.reservation.confirmed
-    ? `Guest: ${ctx.reservation.guestName}\nProperty: ${ctx.reservation.propertyName}\n` +
+    ? `Guest: ${ctx.reservation.guestName}\n` +
+      `Property: ${ctx.reservation.propertyName}\n` +
+      `Address: ${ctx.reservation.propertyAddress}\n` +
       `Check-in: ${ctx.reservation.checkInDate}  Check-out: ${ctx.reservation.checkOutDate}\n` +
+      `Key Code: ${ctx.reservation.keyCode ?? "Not yet assigned"}\n` +
       `Reservation ID: ${ctx.reservation.reservationId}`
     : 'Reservation not yet verified.';
 
@@ -157,8 +160,10 @@ const applyToolSideEffects = (
           reservationId: String(r['id'] ?? r['reservationId'] ?? ''),
           guestName: String(r['guestName'] ?? r['guest_name'] ?? ''),
           propertyName: String(r['propertyTitle'] ?? r['propertyName'] ?? r['property_name'] ?? 'your property'),
+          propertyAddress: String(r['propertyAddress'] ?? r['property_address'] ?? ''),
           checkInDate: toDateStr(r['checkIn'] ?? r['checkInDate'] ?? r['check_in_date']),
           checkOutDate: toDateStr(r['checkOut'] ?? r['checkOutDate'] ?? r['check_out_date']),
+          keyCode: r['keyCode'] ? String(r['keyCode']) : null,
           confirmed: true,
         });
         return StateMachine.transition(ctx, 'EXISTING_GUEST_ROUTING');

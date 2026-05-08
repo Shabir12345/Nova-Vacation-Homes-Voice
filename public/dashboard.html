@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nova Vacation Homes | Business Dashboard</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- CSS -->
+  <link rel="stylesheet" href="dashboard.css">
+  
+  <!-- Charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside>
+      <div class="logo-container">
+        <div class="logo-icon">🏠</div>
+        <span class="logo-text">Nova Voice</span>
+      </div>
+      
+      <nav>
+        <ul class="nav-links">
+          <li><a href="#" class="nav-item active" data-tab="overview">Overview</a></li>
+          <li><a href="#" class="nav-item" data-tab="calls">Call History</a></li>
+          <li><a href="#" class="nav-item" data-tab="leads">Guest Leads</a></li>
+          <li><a href="#" class="nav-item" data-tab="service">Service Requests</a></li>
+          <li><a href="#" class="nav-item" data-tab="feedback">Improvements</a></li>
+          <li><a href="#" class="nav-item" data-tab="settings">Agent Config</a></li>
+        </ul>
+      </nav>
+      
+      <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border);">
+        <p style="font-size: 11px; color: var(--text-dim);">Nova AI Voice Agent v0.2.0</p>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main>
+      
+      <!-- Tab: Overview -->
+      <div id="overview" class="tab-content active">
+        <div class="header-actions">
+          <div class="welcome-msg">
+            <h1>Business Intelligence</h1>
+            <p>Real-time analytics for your vacation home voice concierge.</p>
+          </div>
+          <div class="header-pills">
+            <span class="status-badge status-success" style="padding: 8px 16px; border-radius: 20px;">● System Live</span>
+          </div>
+        </div>
+
+        <!-- Key Stats -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Calls (30d)</div>
+            <div class="stat-value" id="totalCalls">—</div>
+            <div class="stat-trend trend-up">↑ 12% vs last month</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Successful Bookings</div>
+            <div class="stat-value" id="totalBookings">—</div>
+            <div class="stat-trend trend-up">↑ 8% vs last month</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Human Escalations</div>
+            <div class="stat-value" id="totalEscalations">—</div>
+            <div class="stat-trend trend-down">↓ 3% vs last month</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Conversion Rate</div>
+            <div class="stat-value" id="convRate">—</div>
+            <div class="stat-trend trend-up">↑ 1.2% point</div>
+          </div>
+        </div>
+
+        <!-- Graphs -->
+        <div class="charts-row">
+          <div class="card">
+            <div class="card-title">Call Performance <span style="font-size: 12px; color: var(--text-dim);">Last 14 Days</span></div>
+            <div style="height: 300px;">
+              <canvas id="dailyChart"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Top Call Intents</div>
+            <div style="height: 300px;">
+              <canvas id="intentChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Calls -->
+      <div id="calls" class="tab-content">
+        <div class="header-actions">
+          <div class="welcome-msg">
+            <h1>Call History</h1>
+            <p>Full transcripts and AI analysis for every interaction.</p>
+          </div>
+        </div>
+        
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>Caller</th>
+                  <th>Intent</th>
+                  <th>Duration</th>
+                  <th>Outcome</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="callsTableBody">
+                <!-- Data injected by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Leads -->
+      <div id="leads" class="tab-content">
+        <div class="header-actions">
+          <div class="welcome-msg">
+            <h1>Guest Leads</h1>
+            <p>New booking inquiries and business leads captured by AI.</p>
+          </div>
+        </div>
+        
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Lead Name</th>
+                  <th>Type</th>
+                  <th>Details / Destination</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="leadsTableBody">
+                <!-- Data injected by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Service Requests -->
+      <div id="service" class="tab-content">
+        <div class="header-actions">
+          <div class="welcome-msg">
+            <h1>Service & Maintenance</h1>
+            <p>Cleaning and repair requests filed by existing guests.</p>
+          </div>
+        </div>
+        
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Reservation</th>
+                  <th>Request Type</th>
+                  <th>Urgency</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="serviceTableBody">
+                <!-- Data injected by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Improvements (Feedback) -->
+      <div id="feedback" class="tab-content">
+        <div class="header-actions">
+          <div class="welcome-msg">
+            <h1>Agent Improvements</h1>
+            <p>Track bugs, requested features, and quality optimizations.</p>
+          </div>
+          <button class="btn-primary" onclick="showFeedbackForm()">+ New Request</button>
+        </div>
+
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 24px;">
+          <div class="stat-card" style="padding: 16px;">
+            <div class="stat-label">Pending</div>
+            <div class="stat-value" id="pendingCount" style="font-size: 24px;">0</div>
+          </div>
+          <div class="stat-card" style="padding: 16px;">
+            <div class="stat-label">In Progress</div>
+            <div class="stat-value" id="progressCount" style="font-size: 24px;">0</div>
+          </div>
+          <div class="stat-card" style="padding: 16px;">
+            <div class="stat-label">Done</div>
+            <div class="stat-value" id="doneCount" style="font-size: 24px;">0</div>
+          </div>
+        </div>
+        
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Task / Improvement</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="feedbackTableBody">
+                <!-- Data injected by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Settings -->
+      <div id="settings" class="tab-content">
+        <div class="header-actions">
+          <div class="welcome-msg">
+            <h1>Agent Configuration</h1>
+            <p>Fine-tune the personality and voice of your AI assistant.</p>
+          </div>
+        </div>
+        
+        <div class="card" style="max-width: 600px;">
+          <form id="configForm" onsubmit="event.preventDefault(); alert('In this version, settings are updated via .env file for security.');">
+            <div class="input-group">
+              <label>English Voice ID (ElevenLabs)</label>
+              <input type="text" id="voiceEn" placeholder="Laura (Warm)">
+            </div>
+            <div class="input-group">
+              <label>Spanish Voice ID</label>
+              <input type="text" id="voiceEs" placeholder="David (Conversational)">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div class="input-group">
+                <label>Speech Speed</label>
+                <input type="number" id="voiceSpeed" step="0.05" min="0.7" max="1.2">
+              </div>
+              <div class="input-group">
+                <label>Stability</label>
+                <input type="number" id="voiceStability" step="0.05" min="0" max="1">
+              </div>
+            </div>
+            <button class="btn-primary" type="submit">Update Agent Settings</button>
+          </form>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Modal: Transcript -->
+  <div class="overlay" id="transcriptModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle" style="font-size: 20px;">Call Details</h2>
+        <button onclick="closeModal()" style="background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 24px;">&times;</button>
+      </div>
+      <div class="modal-body" id="transcriptContent">
+        <!-- Interactions injected by JS -->
+      </div>
+      <div style="padding: 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end;">
+        <button class="btn-primary" onclick="closeModal()">Close Details</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Feedback Form -->
+  <div class="overlay" id="feedbackModal">
+    <div class="modal" style="max-width: 500px;">
+      <div class="modal-header">
+        <h2 style="font-size: 20px;">Suggest Improvement</h2>
+        <button onclick="closeFeedbackModal()" style="background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 24px;">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="newFeedbackForm" onsubmit="submitFeedback(event)">
+          <div class="input-group">
+            <label>Title / Short Summary</label>
+            <input type="text" id="fbTitle" placeholder="e.g., Fix phonetic read-back for 'Z'" required>
+          </div>
+          <div class="input-group">
+            <label>Detailed Description</label>
+            <textarea id="fbDesc" rows="4" placeholder="What should be changed and why?" required></textarea>
+          </div>
+          <div class="input-group">
+            <label>Priority</label>
+            <select id="fbPriority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 12px;">
+            <button type="button" class="btn" style="border:1px solid var(--border)" onclick="closeFeedbackModal()">Cancel</button>
+            <button type="submit" class="btn-primary">Submit Task</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="dashboard.js"></script>
+</body>
+</html>
