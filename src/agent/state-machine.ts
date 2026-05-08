@@ -115,9 +115,12 @@ export interface ConversationContext {
   isBusinessHours: boolean;
 }
 
-// Enforce valid transitions per the call flow diagram
+// Enforce valid transitions per the call flow diagram.
+// classify_intent in the master agent jumps GREETING straight to a branch state
+// (it's a single LLM tool call, not a separate state visit), so GREETING is
+// allowed to transition directly to the same destinations as INTENT_CLASSIFICATION.
 const VALID_TRANSITIONS: Record<CallState, CallState[]> = {
-  GREETING:                     ['INTENT_CLASSIFICATION', 'ESCALATED'],
+  GREETING:                     ['INTENT_CLASSIFICATION', 'BUSINESS_INQUIRY_COLLECTING', 'GENERAL_INFO_ANSWERING', 'FUTURE_GUEST_ROUTING', 'VERIFYING_RESERVATION', 'ESCALATED'],
   INTENT_CLASSIFICATION:        ['BUSINESS_INQUIRY_COLLECTING', 'GENERAL_INFO_ANSWERING', 'FUTURE_GUEST_ROUTING', 'VERIFYING_RESERVATION', 'ESCALATED'],
   BUSINESS_INQUIRY_COLLECTING:  ['BUSINESS_INQUIRY_LOGGED', 'ESCALATED'],
   BUSINESS_INQUIRY_LOGGED:      ['CLOSED'],

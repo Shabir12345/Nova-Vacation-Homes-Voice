@@ -50,3 +50,6 @@ Thumbs.db
 # Claude Code AI assistant files
 .claude/
 .playwright-mcp/
+
+# Call review reports — contain caller PII (names, partial codes, phone numbers)
+docs/call-reviews/

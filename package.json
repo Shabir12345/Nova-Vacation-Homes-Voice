@@ -19,6 +19,7 @@
     "simulate:scenario": "ts-node --transpile-only src/agent/__tests__/call-simulator.ts",
     "db:migrate": "ts-node --transpile-only scripts/db-migrate.ts",
     "db:seed": "ts-node --transpile-only scripts/db-seed.ts",
+    "review": "ts-node --transpile-only scripts/review-calls.ts",
     "docker:up": "docker-compose up --build",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f agent"

@@ -165,7 +165,11 @@ const handlePrompt = async (
 
   // Cancel any in-flight turn first (defensive — interrupt should have done this)
   state.currentTurn?.abort();
-  state.currentTurn = new AbortController();
+  // Hold a local reference: handleInterrupt() may null state.currentTurn mid-stream,
+  // and we still need .signal in the loop below to detect the abort cleanly instead
+  // of crashing with "Cannot read properties of null (reading 'signal')".
+  const turn = new AbortController();
+  state.currentTurn = turn;
 
   logger.info({ callSid: state.callSid, prompt: msg.voicePrompt, lang: msg.lang }, 'Caller said');
 
@@ -176,9 +180,9 @@ const handlePrompt = async (
     for await (const event of AgentOrchestrator.handleMessageStream(
       state.callSid,
       msg.voicePrompt,
-      state.currentTurn.signal
+      turn.signal
     )) {
-      if (state.currentTurn.signal.aborted) break;
+      if (turn.signal.aborted) break;
 
       switch (event.type) {
         case 'token': {
@@ -243,7 +247,8 @@ const handlePrompt = async (
       clearTimeout(state.fillerTimer);
       state.fillerTimer = null;
     }
-    state.currentTurn = null;
+    // Only clear if it's still ours — a newer prompt may have replaced it.
+    if (state.currentTurn === turn) state.currentTurn = null;
   }
 };
 

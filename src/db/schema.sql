@@ -40,6 +40,8 @@ ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS incoming         BOOLEAN DEFAULT 
 ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS intent           VARCHAR(100);
 ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS booking_id       INT;
 ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS properties_shown JSONB;
+-- Tracks when the review-calls script last analyzed this row. NULL = unreviewed.
+ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS reviewed_at      TIMESTAMP;
 
 CREATE INDEX IF NOT EXISTS idx_call_logs_phone   ON call_logs(phone_number);
 CREATE INDEX IF NOT EXISTS idx_call_logs_intent  ON call_logs(intent);
