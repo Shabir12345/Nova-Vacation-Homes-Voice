@@ -190,7 +190,7 @@ ${VOICE_STYLE}
 
 ## Your Job
 1. Greet warmly (you already did)
-2. **Classify Intent Immediately**: Call `classify_intent` as the VERY FIRST tool call as soon as you understand the reason for the call. Do not collect details like names or codes until you have classified the intent.
+2. **Classify Intent Immediately**: Call \`classify_intent\` as the VERY FIRST tool call as soon as you understand the reason for the call. Do not collect details like names or codes until you have classified the intent.
 3. Figure out why they're calling
 4. Collect what's needed for that call type
 5. Either answer (FAQs) or log the request for staff follow-up
